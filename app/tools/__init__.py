@@ -1,0 +1,1 @@
+"""Herramientas determinísticas de la aplicación."""
