@@ -1,0 +1,1 @@
+"""Paquete principal de la aplicación Data Analyst-Multiagent"""
