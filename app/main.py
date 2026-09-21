@@ -1,8 +1,19 @@
 """Punto de entrada de la aplicación Streamlit."""
 
+import logging
+
 import streamlit as st
 
 from config import APP_NAME, APP_VERSION
+from services.dataset import DatasetError, get_dataset_info, load_csv
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+
+logger = logging.getLogger(__name__)
 
 
 def configure_page() -> None:
@@ -40,9 +51,8 @@ def render_dataset_uploader() -> None:
         return
 
     try:
-        import pandas as pd
-
-        dataframe = pd.read_csv(uploaded_file)
+        dataframe = load_csv(uploaded_file)
+        dataset_info = get_dataset_info(dataframe)
 
         st.success(
             f"Dataset '{uploaded_file.name}' cargado correctamente."
@@ -53,13 +63,13 @@ def render_dataset_uploader() -> None:
         with col1:
             st.metric(
                 "Filas",
-                f"{dataframe.shape[0]:,}",
+                f"{dataset_info['rows']:,}",
             )
 
         with col2:
             st.metric(
                 "Columnas",
-                f"{dataframe.shape[1]:,}",
+                f"{dataset_info['columns']:,}",
             )
 
         st.subheader("👀 Vista previa")
@@ -69,13 +79,24 @@ def render_dataset_uploader() -> None:
             use_container_width=True,
         )
 
-    except Exception as error:
-        st.error(
-            "No fue posible cargar el archivo CSV. "
-            "Verifica que el archivo tenga un formato válido."
+    except DatasetError as error:
+        logger.warning(
+            "No fue posible cargar el dataset '%s': %s",
+            uploaded_file.name,
+            error,
         )
 
-        st.exception(error)
+        st.error(str(error))
+
+    except Exception:
+        logger.exception(
+            "Error inesperado procesando el dataset '%s'.",
+            uploaded_file.name,
+        )
+
+        st.error(
+            "Ocurrió un error inesperado al procesar el archivo."
+        )
 
 
 def main() -> None:
