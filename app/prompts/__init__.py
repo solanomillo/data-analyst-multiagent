@@ -1,0 +1,1 @@
+"""Prompts utilizados por los agentes del sistema."""

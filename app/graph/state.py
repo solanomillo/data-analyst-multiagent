@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any
+
+from langchain.agents import AgentState
 
 
-class AnalysisState(TypedDict, total=False):
+class AnalysisState(AgentState):
     """
     Estado compartido durante el proceso de análisis.
 
-    Cada agente puede leer la información que necesita y actualizar
-    únicamente los campos correspondientes a su responsabilidad.
+    Extiende el estado estándar de los agentes para incorporar
+    la información específica de nuestro sistema de análisis.
     """
 
     # ------------------------------------------------------------------
@@ -56,6 +58,7 @@ class AnalysisState(TypedDict, total=False):
     # ------------------------------------------------------------------
     # Interpretación y resultado final
     # ------------------------------------------------------------------
+
     eda_analysis: str
     narrative: str
     final_report: dict[str, Any]

@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 import pandas as pd
-
+from langchain.tools import tool, ToolRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -302,3 +302,163 @@ def calculate_correlations(
         }
 
     return result
+
+@tool
+def inspect_dataset_schema(
+    runtime: ToolRuntime,
+) -> dict[str, Any]:
+    """
+    Obtiene la estructura y los tipos de datos del dataset actual.
+
+    Args:
+        runtime: Contexto de ejecución del agente.
+
+    Returns:
+        Información estructural del dataset.
+    """
+    dataframe = runtime.state.get("dataset")
+
+    if not isinstance(dataframe, pd.DataFrame):
+        raise ValueError(
+            "No existe un DataFrame válido en el estado."
+        )
+
+    return get_dataset_schema(dataframe)
+
+
+@tool
+def inspect_missing_values(
+    runtime: ToolRuntime,
+) -> dict[str, Any]:
+    """
+    Analiza los valores nulos del dataset actual.
+
+    Args:
+        runtime: Contexto de ejecución del agente.
+
+    Returns:
+        Información sobre los valores nulos.
+    """
+    dataframe = runtime.state.get("dataset")
+
+    if not isinstance(dataframe, pd.DataFrame):
+        raise ValueError(
+            "No existe un DataFrame válido en el estado."
+        )
+
+    return check_missing_values(dataframe)
+
+
+@tool
+def inspect_duplicates(
+    runtime: ToolRuntime,
+) -> dict[str, Any]:
+    """
+    Analiza registros duplicados del dataset actual.
+
+    Args:
+        runtime: Contexto de ejecución del agente.
+
+    Returns:
+        Información sobre registros duplicados.
+    """
+    dataframe = runtime.state.get("dataset")
+
+    if not isinstance(dataframe, pd.DataFrame):
+        raise ValueError(
+            "No existe un DataFrame válido en el estado."
+        )
+
+    return check_duplicates(dataframe)
+
+
+@tool
+def inspect_numeric_statistics(
+    runtime: ToolRuntime,
+) -> dict[str, dict[str, Any]]:
+    """
+    Obtiene estadísticas descriptivas de variables numéricas.
+
+    Args:
+        runtime: Contexto de ejecución del agente.
+
+    Returns:
+        Estadísticas descriptivas.
+    """
+    dataframe = runtime.state.get("dataset")
+
+    if not isinstance(dataframe, pd.DataFrame):
+        raise ValueError(
+            "No existe un DataFrame válido en el estado."
+        )
+
+    return get_numeric_summary(dataframe)
+
+
+@tool
+def inspect_categorical_statistics(
+    runtime: ToolRuntime,
+) -> dict[str, dict[str, Any]]:
+    """
+    Analiza las variables categóricas del dataset.
+
+    Args:
+        runtime: Contexto de ejecución del agente.
+
+    Returns:
+        Resumen de variables categóricas.
+    """
+    dataframe = runtime.state.get("dataset")
+
+    if not isinstance(dataframe, pd.DataFrame):
+        raise ValueError(
+            "No existe un DataFrame válido en el estado."
+        )
+
+    return get_categorical_summary(dataframe)
+
+
+@tool
+def inspect_outliers(
+    runtime: ToolRuntime,
+) -> dict[str, dict[str, Any]]:
+    """
+    Detecta posibles valores atípicos mediante IQR.
+
+    Args:
+        runtime: Contexto de ejecución del agente.
+
+    Returns:
+        Información sobre posibles outliers.
+    """
+    dataframe = runtime.state.get("dataset")
+
+    if not isinstance(dataframe, pd.DataFrame):
+        raise ValueError(
+            "No existe un DataFrame válido en el estado."
+        )
+
+    return detect_outliers(dataframe)
+
+
+@tool
+def inspect_correlations(
+    runtime: ToolRuntime,
+) -> dict[str, dict[str, float]]:
+    """
+    Calcula las correlaciones entre variables numéricas.
+
+    Args:
+        runtime: Contexto de ejecución del agente.
+
+    Returns:
+        Matriz de correlaciones.
+    """
+    dataframe = runtime.state.get("dataset")
+
+    if not isinstance(dataframe, pd.DataFrame):
+        raise ValueError(
+            "No existe un DataFrame válido en el estado."
+        )
+
+    return calculate_correlations(dataframe)
