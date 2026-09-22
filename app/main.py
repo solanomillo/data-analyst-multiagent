@@ -6,7 +6,16 @@ import streamlit as st
 
 from config import APP_NAME, APP_VERSION
 from services.dataset import DatasetError, get_dataset_info, load_csv
-
+from tools.data_tools import (
+    calculate_correlations,
+    check_duplicates,
+    check_missing_values,
+    detect_outliers,
+    get_categorical_summary,
+    get_dataset_schema,
+    get_numeric_summary,
+)
+import pandas as pd
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,26 +67,9 @@ def render_dataset_uploader() -> None:
             f"Dataset '{uploaded_file.name}' cargado correctamente."
         )
 
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.metric(
-                "Filas",
-                f"{dataset_info['rows']:,}",
-            )
-
-        with col2:
-            st.metric(
-                "Columnas",
-                f"{dataset_info['columns']:,}",
-            )
-
-        st.subheader("👀 Vista previa")
-
-        st.dataframe(
-            dataframe.head(10),
-            use_container_width=True,
-        )
+        render_dataset_metrics(dataset_info)
+        render_dataset_preview(dataframe)
+        render_eda(dataframe)
 
     except DatasetError as error:
         logger.warning(
@@ -97,6 +89,222 @@ def render_dataset_uploader() -> None:
         st.error(
             "Ocurrió un error inesperado al procesar el archivo."
         )
+
+
+def render_dataset_metrics(dataset_info: dict[str, int]) -> None:
+    """
+    Muestra las métricas básicas del dataset.
+
+    Args:
+        dataset_info: Información de dimensiones del dataset.
+    """
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            "Filas",
+            f"{dataset_info['rows']:,}",
+        )
+
+    with col2:
+        st.metric(
+            "Columnas",
+            f"{dataset_info['columns']:,}",
+        )
+
+
+def render_dataset_preview(dataframe: pd.DataFrame) -> None:
+    """
+    Muestra una vista previa del dataset.
+
+    Args:
+        dataframe: DataFrame cargado.
+    """
+    st.subheader("👀 Vista previa")
+
+    st.dataframe(
+        dataframe.head(10),
+        use_container_width=True,
+    )
+
+
+def render_eda(dataframe: pd.DataFrame) -> None:
+    """
+    Muestra los resultados del análisis exploratorio inicial.
+
+    Args:
+        dataframe: DataFrame que se desea analizar.
+    """
+    st.divider()
+    st.header("🔎 Exploración del dataset")
+
+    render_schema(dataframe)
+    render_missing_values(dataframe)
+    render_duplicates(dataframe)
+    render_numeric_statistics(dataframe)
+    render_categorical_statistics(dataframe)
+    render_outliers(dataframe)
+    render_correlations(dataframe)
+
+
+def render_schema(dataframe: pd.DataFrame) -> None:
+    """Muestra el esquema del dataset."""
+    schema = get_dataset_schema(dataframe)
+
+    st.subheader("📋 Esquema")
+
+    schema_rows = schema["column_details"]
+
+    st.dataframe(
+        schema_rows,
+        use_container_width=True,
+    )
+
+
+def render_missing_values(dataframe: pd.DataFrame) -> None:
+    """Muestra información sobre valores nulos."""
+    missing_values = check_missing_values(dataframe)
+
+    st.subheader("⚠️ Valores nulos")
+
+    total_nulls = missing_values["total_null_values"]
+
+    if total_nulls == 0:
+        st.success("No se encontraron valores nulos.")
+        return
+
+    st.warning(
+        f"Se encontraron {total_nulls:,} valores nulos."
+    )
+
+    st.dataframe(
+        missing_values["columns_with_nulls"],
+        use_container_width=True,
+    )
+
+
+def render_duplicates(dataframe: pd.DataFrame) -> None:
+    """Muestra información sobre registros duplicados."""
+    duplicates = check_duplicates(dataframe)
+
+    st.subheader("🔁 Registros duplicados")
+
+    duplicate_count = duplicates["duplicate_rows"]
+    percentage = duplicates["percentage"]
+
+    if duplicate_count == 0:
+        st.success("No se encontraron registros duplicados.")
+        return
+
+    st.warning(
+        f"Se encontraron {duplicate_count:,} registros duplicados "
+        f"({percentage:.2f}%)."
+    )
+
+
+def render_numeric_statistics(dataframe: pd.DataFrame) -> None:
+    """Muestra estadísticas descriptivas numéricas."""
+    statistics = get_numeric_summary(dataframe)
+
+    st.subheader("📊 Estadísticas descriptivas")
+
+    if not statistics:
+        st.info(
+            "El dataset no contiene columnas numéricas."
+        )
+        return
+
+    statistics_dataframe = (
+        pd.DataFrame(statistics)
+        .transpose()
+    )
+
+    st.dataframe(
+        statistics_dataframe,
+        use_container_width=True,
+    )
+
+
+def render_categorical_statistics(dataframe: pd.DataFrame) -> None:
+    """Muestra información de variables categóricas."""
+    statistics = get_categorical_summary(dataframe)
+
+    st.subheader("🏷️ Variables categóricas")
+
+    if not statistics:
+        st.info(
+            "El dataset no contiene variables categóricas."
+        )
+        return
+
+    for column, data in statistics.items():
+        with st.expander(column):
+            st.write(
+                f"Valores únicos: {data['unique_values']}"
+            )
+
+            st.dataframe(
+                data["top_values"],
+                use_container_width=True,
+            )
+
+
+def render_outliers(dataframe: pd.DataFrame) -> None:
+    """Muestra información sobre posibles valores atípicos."""
+    outliers = detect_outliers(dataframe)
+
+    st.subheader("🚨 Posibles outliers")
+
+    if not outliers:
+        st.info(
+            "No hay columnas numéricas disponibles para analizar."
+        )
+        return
+
+    outlier_rows = []
+
+    for column, data in outliers.items():
+        outlier_rows.append(
+            {
+                "Columna": column,
+                "Outliers": data["outlier_count"],
+                "Porcentaje": data["outlier_percentage"],
+                "Límite inferior": data["lower_bound"],
+                "Límite superior": data["upper_bound"],
+            }
+        )
+
+    st.dataframe(
+        outlier_rows,
+        use_container_width=True,
+    )
+
+    st.caption(
+        "Los outliers representan posibles valores atípicos "
+        "según el método IQR. No implican necesariamente errores."
+    )
+
+
+def render_correlations(dataframe: pd.DataFrame) -> None:
+    """Muestra la matriz de correlaciones."""
+    correlations = calculate_correlations(dataframe)
+
+    st.subheader("🔗 Correlaciones")
+
+    if not correlations:
+        st.info(
+            "Se necesitan al menos dos columnas numéricas "
+            "para calcular correlaciones."
+        )
+        return
+
+
+    correlation_dataframe = pd.DataFrame(correlations)
+
+    st.dataframe(
+        correlation_dataframe,
+        use_container_width=True,
+    )
 
 
 def main() -> None:
