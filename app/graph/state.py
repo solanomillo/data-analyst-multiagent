@@ -56,7 +56,7 @@ class AnalysisState(TypedDict, total=False):
     # ------------------------------------------------------------------
     # Interpretación y resultado final
     # ------------------------------------------------------------------
-
+    eda_analysis: str
     narrative: str
     final_report: dict[str, Any]
 
