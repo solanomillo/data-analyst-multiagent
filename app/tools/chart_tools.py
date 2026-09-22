@@ -86,7 +86,7 @@ def get_categorical_counts(
         )
 
     categorical_columns = dataframe.select_dtypes(
-        include=["object", "category", "bool"]
+        include=["object", "string","category", "bool"]
     ).columns[:max_columns]
 
     result = {}
@@ -210,7 +210,7 @@ def get_chart_metadata(
 
     categorical_columns = list(
         dataframe.select_dtypes(
-            include=["object", "category", "bool"]
+            include=["object","string", "category", "bool"]
         ).columns
     )
 

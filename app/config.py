@@ -24,5 +24,5 @@ DEEPSEEK_API_KEY = os.getenv(
 
 DEEPSEEK_MODEL = os.getenv(
     "DEEPSEEK_MODEL",
-    "deepseek-chat",
+    "deepseek-flash",
 )

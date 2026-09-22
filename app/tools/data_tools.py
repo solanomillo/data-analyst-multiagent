@@ -173,7 +173,7 @@ def get_categorical_summary(
     logger.info("Analizando variables categóricas.")
 
     categorical_dataframe = dataframe.select_dtypes(
-        include=["object", "category", "bool"]
+        include=["object","string", "category", "bool"]
     )
 
     result = {}
