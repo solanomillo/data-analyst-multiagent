@@ -15,6 +15,11 @@ from tools.data_tools import (
     get_dataset_schema,
     get_numeric_summary,
 )
+from tools.chart_tools import (
+    get_categorical_counts,
+    get_correlation_matrix,
+    get_numeric_histograms,
+)
 import pandas as pd
 
 logging.basicConfig(
@@ -145,7 +150,8 @@ def render_eda(dataframe: pd.DataFrame) -> None:
     render_categorical_statistics(dataframe)
     render_outliers(dataframe)
     render_correlations(dataframe)
-
+    render_eda_charts(dataframe)
+    
 
 def render_schema(dataframe: pd.DataFrame) -> None:
     """Muestra el esquema del dataset."""
@@ -303,6 +309,78 @@ def render_correlations(dataframe: pd.DataFrame) -> None:
 
     st.dataframe(
         correlation_dataframe,
+        use_container_width=True,
+    )
+
+def render_eda_charts(dataframe: pd.DataFrame) -> None:
+    """Muestra las visualizaciones básicas del análisis exploratorio."""
+    st.subheader("📈 Visualizaciones exploratorias")
+
+    render_numeric_histograms(dataframe)
+    render_categorical_charts(dataframe)
+    render_correlation_chart(dataframe)
+
+
+def render_numeric_histograms(
+    dataframe: pd.DataFrame,
+) -> None:
+    """Muestra histogramas de las variables numéricas."""
+    histograms = get_numeric_histograms(dataframe)
+
+    if not histograms:
+        st.info(
+            "No existen variables numéricas disponibles "
+            "para generar histogramas."
+        )
+        return
+
+    st.markdown("#### Distribución de variables numéricas")
+
+    for column, series in histograms.items():
+        st.write(f"**{column}**")
+        st.bar_chart(
+            series.value_counts().sort_index(),
+        )
+
+
+def render_categorical_charts(
+    dataframe: pd.DataFrame,
+) -> None:
+    """Muestra gráficos de frecuencia de variables categóricas."""
+    categorical_counts = get_categorical_counts(dataframe)
+
+    if not categorical_counts:
+        st.info(
+            "No existen variables categóricas disponibles "
+            "para generar gráficos."
+        )
+        return
+
+    st.markdown("#### Distribución de variables categóricas")
+
+    for column, counts in categorical_counts.items():
+        st.write(f"**{column}**")
+        st.bar_chart(counts)
+
+
+def render_correlation_chart(
+    dataframe: pd.DataFrame,
+) -> None:
+    """Muestra la matriz de correlaciones."""
+    try:
+        correlation_matrix = get_correlation_matrix(dataframe)
+
+    except ValueError:
+        st.info(
+            "Se necesitan al menos dos variables numéricas "
+            "para generar la matriz de correlaciones."
+        )
+        return
+
+    st.markdown("#### Matriz de correlaciones")
+
+    st.dataframe(
+        correlation_matrix,
         use_container_width=True,
     )
 
