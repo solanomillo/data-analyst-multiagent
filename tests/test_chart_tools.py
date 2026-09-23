@@ -4,97 +4,131 @@ import pandas as pd
 import pytest
 
 from app.tools.chart_tools import (
-    get_categorical_counts,
+    get_categorical_distribution,
     get_chart_metadata,
     get_correlation_matrix,
-    get_numeric_histograms,
+    get_numeric_distribution,
     get_scatter_data,
 )
 
 
 def create_test_dataframe() -> pd.DataFrame:
-    """Crea un dataset para las pruebas de visualización."""
+    """Crea un dataset para las pruebas."""
     return pd.DataFrame(
         {
-            "edad": [20, 25, 30, 35, 40],
-            "ingresos": [1000, 1500, 2000, 2500, 3000],
-            "ciudad": [
-                "Salta",
-                "Tartagal",
-                "Salta",
-                "Orán",
-                "Salta",
+            "producto": [
+                "A",
+                "B",
+                "A",
+                "C",
+            ],
+            "ventas": [
+                100,
+                200,
+                150,
+                50,
+            ],
+            "cantidad": [
+                2,
+                4,
+                3,
+                1,
             ],
         }
     )
 
 
-def test_get_numeric_histograms() -> None:
-    """Verifica la preparación de histogramas numéricos."""
+def test_get_numeric_distribution() -> None:
+    """Verifica la preparación de una distribución numérica."""
     dataframe = create_test_dataframe()
 
-    result = get_numeric_histograms(dataframe)
+    result = get_numeric_distribution(
+        dataframe,
+        "ventas",
+    )
 
-    assert "edad" in result
-    assert "ingresos" in result
-    assert len(result) == 2
+    assert result["column"] == "ventas"
+    assert result["type"] == "numeric_distribution"
+    assert result["count"] == 4
+    assert result["values"] == [
+        100.0,
+        200.0,
+        150.0,
+        50.0,
+    ]
 
 
-def test_get_categorical_counts() -> None:
-    """Verifica las frecuencias categóricas."""
+def test_get_numeric_distribution_rejects_invalid_column() -> None:
+    """Verifica el rechazo de una columna inexistente."""
     dataframe = create_test_dataframe()
 
-    result = get_categorical_counts(dataframe)
+    with pytest.raises(ValueError):
+        get_numeric_distribution(
+            dataframe,
+            "inexistente",
+        )
 
-    assert "ciudad" in result
-    assert result["ciudad"]["Salta"] == 3
+
+def test_get_numeric_distribution_rejects_non_numeric() -> None:
+    """Verifica el rechazo de una columna no numérica."""
+    dataframe = create_test_dataframe()
+
+    with pytest.raises(ValueError):
+        get_numeric_distribution(
+            dataframe,
+            "producto",
+        )
+
+
+def test_get_categorical_distribution() -> None:
+    """Verifica la distribución categórica."""
+    dataframe = create_test_dataframe()
+
+    result = get_categorical_distribution(
+        dataframe,
+        "producto",
+    )
+
+    assert result["column"] == "producto"
+    assert result["type"] == "categorical_distribution"
+    assert result["values"]["A"] == 2
+    assert result["values"]["B"] == 1
 
 
 def test_get_correlation_matrix() -> None:
-    """Verifica la matriz de correlaciones."""
+    """Verifica la matriz de correlación."""
     dataframe = create_test_dataframe()
 
     result = get_correlation_matrix(dataframe)
 
-    assert result.shape == (2, 2)
-    assert "edad" in result.columns
-    assert "ingresos" in result.columns
+    assert result["type"] == "correlation_matrix"
+    assert "ventas" in result["columns"]
+    assert "cantidad" in result["columns"]
 
 
 def test_get_scatter_data() -> None:
-    """Verifica la preparación de datos de dispersión."""
+    """Verifica la preparación de datos para dispersión."""
     dataframe = create_test_dataframe()
 
     result = get_scatter_data(
         dataframe,
-        "edad",
-        "ingresos",
+        "ventas",
+        "cantidad",
     )
 
-    assert list(result.columns) == [
-        "edad",
-        "ingresos",
-    ]
-    assert len(result) == 5
-
-
-def test_get_scatter_data_invalid_column() -> None:
-    """Verifica el error cuando una columna no existe."""
-    dataframe = create_test_dataframe()
-
-    with pytest.raises(ValueError):
-        get_scatter_data(
-            dataframe,
-            "edad",
-            "altura",
-        )
+    assert result["type"] == "scatter"
+    assert result["x_column"] == "ventas"
+    assert result["y_column"] == "cantidad"
+    assert result["count"] == 4
 
 
 def test_get_chart_metadata() -> None:
-    """Verifica los metadatos de visualización."""
+    """Verifica los metadatos para selección de gráficos."""
     dataframe = create_test_dataframe()
 
     result = get_chart_metadata(dataframe)
 
-    assert result["numeric_count"] == 2
-    assert result["categorical_count"] == 1
+    assert "ventas" in result["numeric_columns"]
+    assert "cantidad" in result["numeric_columns"]
+    assert "producto" in result["categorical_columns"]
+    assert result["total_columns"] == 3
