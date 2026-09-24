@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
 import pandas as pd
-from langchain.tools import tool, ToolRuntime
+from langchain.tools import ToolRuntime, tool
+from langchain_core.messages import ToolMessage
+from langgraph.types import Command
+
 
 logger = logging.getLogger(__name__)
 
 
-def get_dataset_schema(dataframe: pd.DataFrame) -> dict[str, Any]:
+def get_dataset_schema(
+    dataframe: pd.DataFrame,
+) -> dict[str, Any]:
     """
     Obtiene información estructural del dataset.
 
@@ -30,10 +36,16 @@ def get_dataset_schema(dataframe: pd.DataFrame) -> dict[str, Any]:
             {
                 "name": column,
                 "dtype": str(dataframe[column].dtype),
-                "non_null": int(dataframe[column].notna().sum()),
-                "nulls": int(dataframe[column].isna().sum()),
+                "non_null": int(
+                    dataframe[column].notna().sum()
+                ),
+                "nulls": int(
+                    dataframe[column].isna().sum()
+                ),
                 "unique_values": int(
-                    dataframe[column].nunique(dropna=True)
+                    dataframe[column].nunique(
+                        dropna=True
+                    )
                 ),
             }
         )
@@ -130,7 +142,9 @@ def get_numeric_summary(
     Returns:
         Estadísticas descriptivas por columna numérica.
     """
-    logger.info("Calculando estadísticas descriptivas numéricas.")
+    logger.info(
+        "Calculando estadísticas descriptivas numéricas."
+    )
 
     numeric_dataframe = dataframe.select_dtypes(
         include="number"
@@ -173,7 +187,12 @@ def get_categorical_summary(
     logger.info("Analizando variables categóricas.")
 
     categorical_dataframe = dataframe.select_dtypes(
-        include=["object","string", "category", "bool"]
+        include=[
+            "object",
+            "string",
+            "category",
+            "bool",
+        ]
     )
 
     result = {}
@@ -197,7 +216,9 @@ def get_categorical_summary(
 
         result[column] = {
             "unique_values": int(
-                dataframe[column].nunique(dropna=True)
+                dataframe[column].nunique(
+                    dropna=True
+                )
             ),
             "top_values": values,
         }
@@ -279,7 +300,9 @@ def calculate_correlations(
     Returns:
         Matriz de correlaciones representada como diccionario.
     """
-    logger.info("Calculando correlaciones entre variables numéricas.")
+    logger.info(
+        "Calculando correlaciones entre variables numéricas."
+    )
 
     numeric_dataframe = dataframe.select_dtypes(
         include="number"
@@ -295,7 +318,12 @@ def calculate_correlations(
     for column in correlation_matrix.columns:
         result[column] = {
             other_column: round(
-                float(correlation_matrix.loc[column, other_column]),
+                float(
+                    correlation_matrix.loc[
+                        column,
+                        other_column,
+                    ]
+                ),
                 4,
             )
             for other_column in correlation_matrix.columns
@@ -303,18 +331,22 @@ def calculate_correlations(
 
     return result
 
-@tool
-def inspect_dataset_schema(
+
+def _get_dataframe(
     runtime: ToolRuntime,
-) -> dict[str, Any]:
+) -> pd.DataFrame:
     """
-    Obtiene la estructura y los tipos de datos del dataset actual.
+    Obtiene el DataFrame almacenado en el estado del agente.
 
     Args:
-        runtime: Contexto de ejecución del agente.
+        runtime: Contexto de ejecución de la herramienta.
 
     Returns:
-        Información estructural del dataset.
+        DataFrame almacenado en el estado.
+
+    Raises:
+        ValueError:
+            Si el estado no contiene un DataFrame válido.
     """
     dataframe = runtime.state.get("dataset")
 
@@ -323,142 +355,244 @@ def inspect_dataset_schema(
             "No existe un DataFrame válido en el estado."
         )
 
-    return get_dataset_schema(dataframe)
+    return dataframe
+
+
+def _create_tool_command(
+    result: Any,
+    state_field: str,
+    tool_call_id: str | None,
+) -> Command:
+    """
+    Crea el Command utilizado para actualizar el estado del agente.
+
+    Args:
+        result: Resultado calculado por la herramienta.
+        state_field: Campo de AnalysisState que debe actualizarse.
+        tool_call_id: Identificador de la llamada de herramienta.
+
+    Returns:
+        Command con el resultado y el ToolMessage correspondiente.
+
+    Raises:
+        ValueError:
+            Si no existe un identificador de llamada de herramienta.
+    """
+    if not tool_call_id:
+        raise ValueError(
+            "La herramienta requiere un tool_call_id válido."
+        )
+
+    message_content = json.dumps(
+        result,
+        ensure_ascii=False,
+        default=str,
+    )
+
+    tool_message = ToolMessage(
+        content=message_content,
+        tool_call_id=tool_call_id,
+    )
+
+    return Command(
+        update={
+            state_field: result,
+            "messages": [tool_message],
+        }
+    )
+
+
+@tool
+def inspect_dataset_schema(
+    runtime: ToolRuntime,
+) -> Command:
+    """
+    Obtiene la estructura del dataset y actualiza el estado.
+
+    Args:
+        runtime: Contexto de ejecución del agente.
+
+    Returns:
+        Command que actualiza dataset_schema.
+    """
+    dataframe = _get_dataframe(runtime)
+
+    logger.info(
+        "Ejecutando herramienta inspect_dataset_schema."
+    )
+
+    result = get_dataset_schema(dataframe)
+
+    return _create_tool_command(
+        result=result,
+        state_field="dataset_schema",
+        tool_call_id=runtime.tool_call_id,
+    )
 
 
 @tool
 def inspect_missing_values(
     runtime: ToolRuntime,
-) -> dict[str, Any]:
+) -> Command:
     """
-    Analiza los valores nulos del dataset actual.
+    Analiza valores nulos y actualiza el estado.
 
     Args:
         runtime: Contexto de ejecución del agente.
 
     Returns:
-        Información sobre los valores nulos.
+        Command que actualiza missing_values.
     """
-    dataframe = runtime.state.get("dataset")
+    dataframe = _get_dataframe(runtime)
 
-    if not isinstance(dataframe, pd.DataFrame):
-        raise ValueError(
-            "No existe un DataFrame válido en el estado."
-        )
+    logger.info(
+        "Ejecutando herramienta inspect_missing_values."
+    )
 
-    return check_missing_values(dataframe)
+    result = check_missing_values(dataframe)
+
+    return _create_tool_command(
+        result=result,
+        state_field="missing_values",
+        tool_call_id=runtime.tool_call_id,
+    )
 
 
 @tool
 def inspect_duplicates(
     runtime: ToolRuntime,
-) -> dict[str, Any]:
+) -> Command:
     """
-    Analiza registros duplicados del dataset actual.
+    Analiza registros duplicados y actualiza el estado.
 
     Args:
         runtime: Contexto de ejecución del agente.
 
     Returns:
-        Información sobre registros duplicados.
+        Command que actualiza duplicate_info.
     """
-    dataframe = runtime.state.get("dataset")
+    dataframe = _get_dataframe(runtime)
 
-    if not isinstance(dataframe, pd.DataFrame):
-        raise ValueError(
-            "No existe un DataFrame válido en el estado."
-        )
+    logger.info(
+        "Ejecutando herramienta inspect_duplicates."
+    )
 
-    return check_duplicates(dataframe)
+    result = check_duplicates(dataframe)
+
+    return _create_tool_command(
+        result=result,
+        state_field="duplicate_info",
+        tool_call_id=runtime.tool_call_id,
+    )
 
 
 @tool
 def inspect_numeric_statistics(
     runtime: ToolRuntime,
-) -> dict[str, dict[str, Any]]:
+) -> Command:
     """
-    Obtiene estadísticas descriptivas de variables numéricas.
+    Obtiene estadísticas numéricas y actualiza el estado.
 
     Args:
         runtime: Contexto de ejecución del agente.
 
     Returns:
-        Estadísticas descriptivas.
+        Command que actualiza numeric_summary.
     """
-    dataframe = runtime.state.get("dataset")
+    dataframe = _get_dataframe(runtime)
 
-    if not isinstance(dataframe, pd.DataFrame):
-        raise ValueError(
-            "No existe un DataFrame válido en el estado."
-        )
+    logger.info(
+        "Ejecutando herramienta inspect_numeric_statistics."
+    )
 
-    return get_numeric_summary(dataframe)
+    result = get_numeric_summary(dataframe)
+
+    return _create_tool_command(
+        result=result,
+        state_field="numeric_summary",
+        tool_call_id=runtime.tool_call_id,
+    )
 
 
 @tool
 def inspect_categorical_statistics(
     runtime: ToolRuntime,
-) -> dict[str, dict[str, Any]]:
+) -> Command:
     """
-    Analiza las variables categóricas del dataset.
+    Analiza variables categóricas y actualiza el estado.
 
     Args:
         runtime: Contexto de ejecución del agente.
 
     Returns:
-        Resumen de variables categóricas.
+        Command que actualiza categorical_summary.
     """
-    dataframe = runtime.state.get("dataset")
+    dataframe = _get_dataframe(runtime)
 
-    if not isinstance(dataframe, pd.DataFrame):
-        raise ValueError(
-            "No existe un DataFrame válido en el estado."
-        )
+    logger.info(
+        "Ejecutando herramienta inspect_categorical_statistics."
+    )
 
-    return get_categorical_summary(dataframe)
+    result = get_categorical_summary(dataframe)
+
+    return _create_tool_command(
+        result=result,
+        state_field="categorical_summary",
+        tool_call_id=runtime.tool_call_id,
+    )
 
 
 @tool
 def inspect_outliers(
     runtime: ToolRuntime,
-) -> dict[str, dict[str, Any]]:
+) -> Command:
     """
-    Detecta posibles valores atípicos mediante IQR.
+    Detecta posibles outliers y actualiza el estado.
 
     Args:
         runtime: Contexto de ejecución del agente.
 
     Returns:
-        Información sobre posibles outliers.
+        Command que actualiza outliers.
     """
-    dataframe = runtime.state.get("dataset")
+    dataframe = _get_dataframe(runtime)
 
-    if not isinstance(dataframe, pd.DataFrame):
-        raise ValueError(
-            "No existe un DataFrame válido en el estado."
-        )
+    logger.info(
+        "Ejecutando herramienta inspect_outliers."
+    )
 
-    return detect_outliers(dataframe)
+    result = detect_outliers(dataframe)
+
+    return _create_tool_command(
+        result=result,
+        state_field="outliers",
+        tool_call_id=runtime.tool_call_id,
+    )
 
 
 @tool
 def inspect_correlations(
     runtime: ToolRuntime,
-) -> dict[str, dict[str, float]]:
+) -> Command:
     """
-    Calcula las correlaciones entre variables numéricas.
+    Calcula correlaciones y actualiza el estado.
 
     Args:
         runtime: Contexto de ejecución del agente.
 
     Returns:
-        Matriz de correlaciones.
+        Command que actualiza correlations.
     """
-    dataframe = runtime.state.get("dataset")
+    dataframe = _get_dataframe(runtime)
 
-    if not isinstance(dataframe, pd.DataFrame):
-        raise ValueError(
-            "No existe un DataFrame válido en el estado."
-        )
+    logger.info(
+        "Ejecutando herramienta inspect_correlations."
+    )
 
-    return calculate_correlations(dataframe)
+    result = calculate_correlations(dataframe)
+
+    return _create_tool_command(
+        result=result,
+        state_field="correlations",
+        tool_call_id=runtime.tool_call_id,
+    )

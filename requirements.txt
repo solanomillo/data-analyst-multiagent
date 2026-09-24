@@ -4,3 +4,5 @@ python-dotenv
 pytest
 langchain-deepseek
 langchain
+langchain-core
+langgraph
