@@ -1,30 +1,23 @@
 """Punto de entrada de la aplicación Streamlit."""
 
+from __future__ import annotations
+
 import logging
+from typing import Any
 
 import streamlit as st
 
-from config import APP_NAME, APP_VERSION
-from services.dataset import DatasetError, get_dataset_info, load_csv
-from tools.data_tools import (
-    calculate_correlations,
-    check_duplicates,
-    check_missing_values,
-    detect_outliers,
-    get_categorical_summary,
-    get_dataset_schema,
-    get_numeric_summary,
-)
-from tools.chart_tools import (
-    get_categorical_counts,
-    get_correlation_matrix,
-    get_numeric_histograms,
-)
-import pandas as pd
+from app.config import APP_NAME, APP_VERSION
+from app.graph.workflow import WorkflowError, run_analysis
+from app.services.dataset import DatasetError, get_dataset_info, load_csv
+
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format=(
+        "%(asctime)s - %(name)s - "
+        "%(levelname)s - %(message)s"
+    ),
 )
 
 logger = logging.getLogger(__name__)
@@ -48,7 +41,7 @@ def render_header() -> None:
 
 
 def render_dataset_uploader() -> None:
-    """Muestra el componente para cargar archivos CSV."""
+    """Muestra el componente para cargar un dataset CSV."""
     st.subheader("📁 Cargar dataset")
 
     uploaded_file = st.file_uploader(
@@ -68,41 +61,53 @@ def render_dataset_uploader() -> None:
         dataframe = load_csv(uploaded_file)
         dataset_info = get_dataset_info(dataframe)
 
-        st.success(
-            f"Dataset '{uploaded_file.name}' cargado correctamente."
-        )
-
-        render_dataset_metrics(dataset_info)
-        render_dataset_preview(dataframe)
-        render_eda(dataframe)
-
     except DatasetError as error:
         logger.warning(
             "No fue posible cargar el dataset '%s': %s",
             uploaded_file.name,
             error,
         )
-
         st.error(str(error))
+        return
 
     except Exception:
         logger.exception(
             "Error inesperado procesando el dataset '%s'.",
             uploaded_file.name,
         )
-
         st.error(
             "Ocurrió un error inesperado al procesar el archivo."
         )
+        return
+
+    st.success(
+        f"Dataset '{uploaded_file.name}' cargado correctamente."
+    )
+
+    render_dataset_information(
+        dataframe=dataframe,
+        dataset_info=dataset_info,
+    )
+
+    render_analysis_form(
+        dataframe=dataframe,
+        dataset_name=uploaded_file.name,
+    )
 
 
-def render_dataset_metrics(dataset_info: dict[str, int]) -> None:
+def render_dataset_information(
+    dataframe: Any,
+    dataset_info: dict[str, int],
+) -> None:
     """
-    Muestra las métricas básicas del dataset.
+    Muestra información básica del dataset cargado.
 
     Args:
-        dataset_info: Información de dimensiones del dataset.
+        dataframe: DataFrame cargado desde el archivo CSV.
+        dataset_info: Información dimensional del dataset.
     """
+    st.subheader("📊 Dataset")
+
     col1, col2 = st.columns(2)
 
     with col1:
@@ -117,272 +122,179 @@ def render_dataset_metrics(dataset_info: dict[str, int]) -> None:
             f"{dataset_info['columns']:,}",
         )
 
+    with st.expander("👀 Vista previa del dataset"):
+        st.dataframe(
+            dataframe.head(10),
+            use_container_width=True,
+        )
 
-def render_dataset_preview(dataframe: pd.DataFrame) -> None:
+
+def render_analysis_form(
+    dataframe: Any,
+    dataset_name: str,
+) -> None:
     """
-    Muestra una vista previa del dataset.
+    Muestra el formulario para iniciar el análisis multi-agente.
 
     Args:
-        dataframe: DataFrame cargado.
-    """
-    st.subheader("👀 Vista previa")
-
-    st.dataframe(
-        dataframe.head(10),
-        use_container_width=True,
-    )
-
-
-def render_eda(dataframe: pd.DataFrame) -> None:
-    """
-    Muestra los resultados del análisis exploratorio inicial.
-
-    Args:
-        dataframe: DataFrame que se desea analizar.
+        dataframe: Dataset que será analizado.
+        dataset_name: Nombre del archivo cargado.
     """
     st.divider()
-    st.header("🔎 Exploración del dataset")
+    st.subheader("🔎 Análisis multi-agente")
 
-    render_schema(dataframe)
-    render_missing_values(dataframe)
-    render_duplicates(dataframe)
-    render_numeric_statistics(dataframe)
-    render_categorical_statistics(dataframe)
-    render_outliers(dataframe)
-    render_correlations(dataframe)
-    render_eda_charts(dataframe)
-    
+    user_question = st.text_area(
+        "¿Qué quieres analizar?",
+        placeholder=(
+            "Ejemplo: ¿Cuáles son las principales tendencias "
+            "del dataset?"
+        ),
+        help=(
+            "Escribe una pregunta concreta sobre los datos. "
+            "El supervisor decidirá qué agentes especializados "
+            "deben intervenir."
+        ),
+    )
 
-def render_schema(dataframe: pd.DataFrame) -> None:
-    """Muestra el esquema del dataset."""
-    schema = get_dataset_schema(dataframe)
-
-    st.subheader("📋 Esquema")
-
-    schema_rows = schema["column_details"]
-
-    st.dataframe(
-        schema_rows,
+    analyze_clicked = st.button(
+        "🚀 Ejecutar análisis",
+        type="primary",
         use_container_width=True,
     )
 
-
-def render_missing_values(dataframe: pd.DataFrame) -> None:
-    """Muestra información sobre valores nulos."""
-    missing_values = check_missing_values(dataframe)
-
-    st.subheader("⚠️ Valores nulos")
-
-    total_nulls = missing_values["total_null_values"]
-
-    if total_nulls == 0:
-        st.success("No se encontraron valores nulos.")
+    if not analyze_clicked:
         return
 
-    st.warning(
-        f"Se encontraron {total_nulls:,} valores nulos."
-    )
+    question = user_question.strip()
 
-    st.dataframe(
-        missing_values["columns_with_nulls"],
-        use_container_width=True,
-    )
-
-
-def render_duplicates(dataframe: pd.DataFrame) -> None:
-    """Muestra información sobre registros duplicados."""
-    duplicates = check_duplicates(dataframe)
-
-    st.subheader("🔁 Registros duplicados")
-
-    duplicate_count = duplicates["duplicate_rows"]
-    percentage = duplicates["percentage"]
-
-    if duplicate_count == 0:
-        st.success("No se encontraron registros duplicados.")
-        return
-
-    st.warning(
-        f"Se encontraron {duplicate_count:,} registros duplicados "
-        f"({percentage:.2f}%)."
-    )
-
-
-def render_numeric_statistics(dataframe: pd.DataFrame) -> None:
-    """Muestra estadísticas descriptivas numéricas."""
-    statistics = get_numeric_summary(dataframe)
-
-    st.subheader("📊 Estadísticas descriptivas")
-
-    if not statistics:
-        st.info(
-            "El dataset no contiene columnas numéricas."
+    if not question:
+        st.warning(
+            "Debes escribir una pregunta antes de ejecutar "
+            "el análisis."
         )
         return
 
-    statistics_dataframe = (
-        pd.DataFrame(statistics)
-        .transpose()
-    )
-
-    st.dataframe(
-        statistics_dataframe,
-        use_container_width=True,
+    execute_analysis(
+        dataframe=dataframe,
+        dataset_name=dataset_name,
+        user_question=question,
     )
 
 
-def render_categorical_statistics(dataframe: pd.DataFrame) -> None:
-    """Muestra información de variables categóricas."""
-    statistics = get_categorical_summary(dataframe)
+def execute_analysis(
+    dataframe: Any,
+    dataset_name: str,
+    user_question: str,
+) -> None:
+    """
+    Ejecuta el workflow multi-agente y muestra sus resultados.
 
-    st.subheader("🏷️ Variables categóricas")
+    Args:
+        dataframe: Dataset que será analizado.
+        dataset_name: Nombre del archivo cargado.
+        user_question: Pregunta realizada por el usuario.
+    """
+    logger.info(
+        "Iniciando análisis desde Streamlit para '%s'.",
+        dataset_name,
+    )
 
-    if not statistics:
-        st.info(
-            "El dataset no contiene variables categóricas."
-        )
-        return
-
-    for column, data in statistics.items():
-        with st.expander(column):
-            st.write(
-                f"Valores únicos: {data['unique_values']}"
+    with st.spinner(
+        "🤖 Los agentes están analizando el dataset..."
+    ):
+        try:
+            result = run_analysis(
+                dataframe=dataframe,
+                dataset_name=dataset_name,
+                user_question=user_question,
             )
 
-            st.dataframe(
-                data["top_values"],
-                use_container_width=True,
+        except WorkflowError as error:
+            logger.error(
+                "El workflow no pudo completar el análisis: %s",
+                error,
+            )
+            st.error(str(error))
+            return
+
+        except Exception:
+            logger.exception(
+                "Error inesperado durante el análisis multi-agente."
+            )
+            st.error(
+                "Ocurrió un error inesperado durante el análisis."
+            )
+            return
+
+    logger.info(
+        "Análisis completado correctamente para '%s'.",
+        dataset_name,
+    )
+
+    render_analysis_result(result)
+
+
+def render_analysis_result(
+    result: dict[str, Any],
+) -> None:
+    """
+    Muestra el resultado final producido por el workflow.
+
+    Args:
+        result: Estado final devuelto por el workflow.
+    """
+    st.divider()
+    st.header("📄 Resultado del análisis")
+
+    narrative = result.get("narrative", "")
+    final_report = result.get("final_report", {})
+
+    if narrative:
+        st.subheader("📝 Informe")
+        st.markdown(narrative)
+    else:
+        st.info(
+            "El workflow no produjo contenido narrativo."
+        )
+
+    if final_report:
+        st.subheader("📊 Resultados estructurados")
+        st.json(final_report)
+
+    render_analysis_metadata(result)
+
+
+def render_analysis_metadata(
+    result: dict[str, Any],
+) -> None:
+    """
+    Muestra información técnica resumida del análisis.
+
+    Args:
+        result: Estado final producido por el workflow.
+    """
+    with st.expander("🔧 Información del análisis"):
+        dataset_info = result.get("dataset_info", {})
+
+        if dataset_info:
+            st.write("**Dataset:**")
+            st.json(dataset_info)
+
+        sql_query = result.get("sql_query", "")
+
+        if sql_query:
+            st.write("**Consulta SQL utilizada:**")
+            st.code(
+                sql_query,
+                language="sql",
             )
 
+        errors = result.get("errors", [])
 
-def render_outliers(dataframe: pd.DataFrame) -> None:
-    """Muestra información sobre posibles valores atípicos."""
-    outliers = detect_outliers(dataframe)
-
-    st.subheader("🚨 Posibles outliers")
-
-    if not outliers:
-        st.info(
-            "No hay columnas numéricas disponibles para analizar."
-        )
-        return
-
-    outlier_rows = []
-
-    for column, data in outliers.items():
-        outlier_rows.append(
-            {
-                "Columna": column,
-                "Outliers": data["outlier_count"],
-                "Porcentaje": data["outlier_percentage"],
-                "Límite inferior": data["lower_bound"],
-                "Límite superior": data["upper_bound"],
-            }
-        )
-
-    st.dataframe(
-        outlier_rows,
-        use_container_width=True,
-    )
-
-    st.caption(
-        "Los outliers representan posibles valores atípicos "
-        "según el método IQR. No implican necesariamente errores."
-    )
-
-
-def render_correlations(dataframe: pd.DataFrame) -> None:
-    """Muestra la matriz de correlaciones."""
-    correlations = calculate_correlations(dataframe)
-
-    st.subheader("🔗 Correlaciones")
-
-    if not correlations:
-        st.info(
-            "Se necesitan al menos dos columnas numéricas "
-            "para calcular correlaciones."
-        )
-        return
-
-
-    correlation_dataframe = pd.DataFrame(correlations)
-
-    st.dataframe(
-        correlation_dataframe,
-        use_container_width=True,
-    )
-
-def render_eda_charts(dataframe: pd.DataFrame) -> None:
-    """Muestra las visualizaciones básicas del análisis exploratorio."""
-    st.subheader("📈 Visualizaciones exploratorias")
-
-    render_numeric_histograms(dataframe)
-    render_categorical_charts(dataframe)
-    render_correlation_chart(dataframe)
-
-
-def render_numeric_histograms(
-    dataframe: pd.DataFrame,
-) -> None:
-    """Muestra histogramas de las variables numéricas."""
-    histograms = get_numeric_histograms(dataframe)
-
-    if not histograms:
-        st.info(
-            "No existen variables numéricas disponibles "
-            "para generar histogramas."
-        )
-        return
-
-    st.markdown("#### Distribución de variables numéricas")
-
-    for column, series in histograms.items():
-        st.write(f"**{column}**")
-        st.bar_chart(
-            series.value_counts().sort_index(),
-        )
-
-
-def render_categorical_charts(
-    dataframe: pd.DataFrame,
-) -> None:
-    """Muestra gráficos de frecuencia de variables categóricas."""
-    categorical_counts = get_categorical_counts(dataframe)
-
-    if not categorical_counts:
-        st.info(
-            "No existen variables categóricas disponibles "
-            "para generar gráficos."
-        )
-        return
-
-    st.markdown("#### Distribución de variables categóricas")
-
-    for column, counts in categorical_counts.items():
-        st.write(f"**{column}**")
-        st.bar_chart(counts)
-
-
-def render_correlation_chart(
-    dataframe: pd.DataFrame,
-) -> None:
-    """Muestra la matriz de correlaciones."""
-    try:
-        correlation_matrix = get_correlation_matrix(dataframe)
-
-    except ValueError:
-        st.info(
-            "Se necesitan al menos dos variables numéricas "
-            "para generar la matriz de correlaciones."
-        )
-        return
-
-    st.markdown("#### Matriz de correlaciones")
-
-    st.dataframe(
-        correlation_matrix,
-        use_container_width=True,
-    )
+        if errors:
+            st.warning("Se produjeron las siguientes incidencias:")
+            for error in errors:
+                st.write(f"- {error}")
 
 
 def main() -> None:
