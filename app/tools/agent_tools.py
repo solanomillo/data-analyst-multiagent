@@ -56,7 +56,7 @@ def _build_state_update(
 
     Raises:
         KeyError:
-            Si no existe un contrato para el agente.
+            Si no existe un contrato de estado para el agente.
     """
     if agent_name not in AGENT_STATE_FIELDS:
         raise KeyError(
@@ -73,6 +73,28 @@ def _build_state_update(
     }
 
 
+def _create_specialist_state(
+    state: AnalysisState,
+) -> dict[str, Any]:
+    """
+    Crea el estado que recibirá un agente especializado.
+
+    El agente especializado comparte los datos y resultados del
+    análisis, pero inicia su propia conversación. Esto evita enviarle
+    mensajes del supervisor que contengan tool_calls pendientes.
+
+    Args:
+        state: Estado actual del supervisor.
+
+    Returns:
+        Copia del estado con el historial de mensajes vacío.
+    """
+    specialist_state = dict(state)
+    specialist_state["messages"] = []
+
+    return specialist_state
+
+
 def _run_specialist(
     agent_name: str,
     agent: Any,
@@ -81,6 +103,12 @@ def _run_specialist(
 ) -> Command:
     """
     Ejecuta un agente especializado y propaga sus resultados.
+
+    El agente especializado recibe el estado compartido del análisis,
+    pero no recibe el historial conversacional del supervisor.
+    Después de completar su tarea, sus resultados permitidos se
+    incorporan al estado principal y se genera el ToolMessage que
+    responde a la llamada realizada por el supervisor.
 
     Args:
         agent_name: Nombre del agente especializado.
@@ -94,7 +122,8 @@ def _run_specialist(
 
     Raises:
         RuntimeError:
-            Si el agente no devuelve un estado válido.
+            Si el agente no devuelve un estado válido o no existe
+            un tool_call_id.
         KeyError:
             Si el agente no tiene contrato de estado.
     """
@@ -103,7 +132,11 @@ def _run_specialist(
         agent_name,
     )
 
-    result = agent.invoke(state)
+    specialist_state = _create_specialist_state(
+        state=state,
+    )
+
+    result = agent.invoke(specialist_state)
 
     if not isinstance(result, dict):
         logger.error(
