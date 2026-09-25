@@ -141,7 +141,7 @@ def get_correlation_matrix(
             Si existen menos de dos columnas numéricas.
     """
     numeric_dataframe = dataframe.select_dtypes(
-        include="number"
+        include="number",
     )
 
     if numeric_dataframe.shape[1] < 2:
@@ -200,7 +200,7 @@ def get_scatter_data(
             )
 
         if not pd.api.types.is_numeric_dtype(
-            dataframe[column]
+            dataframe[column],
         ):
             raise ValueError(
                 f"La columna '{column}' no es numérica."
@@ -234,7 +234,7 @@ def get_chart_metadata(
     """
     numeric_columns = list(
         dataframe.select_dtypes(
-            include="number"
+            include="number",
         ).columns
     )
 
@@ -244,7 +244,7 @@ def get_chart_metadata(
                 "object",
                 "category",
                 "bool",
-            ]
+            ],
         ).columns
     )
 
@@ -262,15 +262,16 @@ def _create_chart_tool_command(
     """
     Crea un Command para persistir un resultado de visualización.
 
-    El resultado actual se agrega a los resultados anteriores del
-    estado para permitir que el agente genere varias visualizaciones.
+    Cada ejecución de una herramienta devuelve únicamente su propio
+    resultado. La acumulación de resultados es responsabilidad del
+    reducer definido en AnalysisState.
 
     Args:
         result: Resultado generado por una herramienta determinística.
         runtime: Contexto de ejecución de la herramienta.
 
     Returns:
-        Command con chart_results actualizado y ToolMessage.
+        Command con el resultado y el mensaje de herramienta.
 
     Raises:
         ValueError:
@@ -280,21 +281,6 @@ def _create_chart_tool_command(
         raise ValueError(
             "La herramienta requiere un tool_call_id válido."
         )
-
-    current_results = runtime.state.get(
-        "chart_results",
-        [],
-    )
-
-    if not isinstance(current_results, list):
-        raise ValueError(
-            "El campo 'chart_results' debe ser una lista."
-        )
-
-    updated_results = [
-        *current_results,
-        result,
-    ]
 
     tool_message = ToolMessage(
         content=json.dumps(
@@ -307,7 +293,7 @@ def _create_chart_tool_command(
 
     return Command(
         update={
-            "chart_results": updated_results,
+            "chart_results": [result],
             "messages": [tool_message],
         }
     )
@@ -387,7 +373,7 @@ def inspect_correlation_matrix(
     Obtiene y persiste la matriz de correlación.
 
     Args:
-        runtime: Contexto de ejecución del agente.
+        runtime: Contexto de ejecución de la herramienta.
 
     Returns:
         Command con el resultado persistido en chart_results.
@@ -395,7 +381,7 @@ def inspect_correlation_matrix(
     dataframe = _get_dataframe(runtime)
 
     logger.info(
-        "Preparando matriz de correlación."
+        "Preparando matriz de correlación.",
     )
 
     result = get_correlation_matrix(

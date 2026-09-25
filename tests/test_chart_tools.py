@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import operator
+
 import pandas as pd
 import pytest
 from langchain.tools import ToolRuntime
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
+from app.graph.state import AnalysisState
 from app.tools.chart_tools import (
     get_categorical_distribution,
     get_correlation_matrix,
@@ -293,8 +296,13 @@ def test_inspect_scatter_data_updates_state() -> None:
     assert chart_results[0]["y_column"] == "ingresos"
 
 
-def test_chart_results_are_accumulated() -> None:
-    """Verifica que los resultados anteriores no sean sobrescritos."""
+def test_chart_tool_returns_only_new_result() -> None:
+    """
+    Verifica que la herramienta no acumule manualmente resultados.
+
+    La acumulación de resultados corresponde al reducer definido
+    en AnalysisState.
+    """
     dataframe = create_test_dataframe()
 
     previous_results = [
@@ -319,12 +327,49 @@ def test_chart_results_are_accumulated() -> None:
 
     chart_results = result.update["chart_results"]
 
-    assert len(chart_results) == 2
-    assert chart_results[0] == previous_results[0]
-    assert chart_results[1]["column"] == "ciudad"
-    assert chart_results[1]["type"] == (
+    assert len(chart_results) == 1
+    assert chart_results[0]["column"] == "ciudad"
+    assert chart_results[0]["type"] == (
         "categorical_distribution"
     )
+
+
+def test_chart_results_reducer_accumulates_results() -> None:
+    """
+    Verifica que el reducer de AnalysisState acumule resultados.
+
+    La herramienta produce un único resultado por ejecución.
+    LangGraph utiliza el reducer operator.add para combinar
+    múltiples actualizaciones del campo chart_results.
+    """
+    previous_results = [
+        {
+            "column": "edad",
+            "type": "numeric_distribution",
+            "count": 5,
+        }
+    ]
+
+    new_result = {
+        "column": "ciudad",
+        "type": "categorical_distribution",
+        "values": {
+            "Salta": 3,
+            "Tartagal": 1,
+            "Orán": 1,
+        },
+    }
+
+    reducer = operator.add
+
+    accumulated_results = reducer(
+        previous_results,
+        [new_result],
+    )
+
+    assert len(accumulated_results) == 2
+    assert accumulated_results[0] == previous_results[0]
+    assert accumulated_results[1] == new_result
 
 
 def test_chart_tool_requires_tool_call_id() -> None:

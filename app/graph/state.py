@@ -13,7 +13,11 @@ class AnalysisState(AgentState):
     Estado compartido durante el proceso de análisis.
 
     Extiende el estado estándar de los agentes para incorporar
-    la información específica de nuestro sistema de análisis.
+    la información específica del sistema de análisis.
+
+    Los campos que representan colecciones de resultados utilizan
+    reducers de LangGraph para permitir actualizaciones concurrentes
+    durante la ejecución de herramientas y agentes especializados.
     """
 
     # ------------------------------------------------------------------
@@ -46,8 +50,15 @@ class AnalysisState(AgentState):
     # Visualizaciones
     # ------------------------------------------------------------------
 
-    eda_charts: list[dict[str, Any]]
-    chart_results: list[dict[str, Any]]
+    eda_charts: Annotated[
+        list[dict[str, Any]],
+        operator.add,
+    ]
+
+    chart_results: Annotated[
+        list[dict[str, Any]],
+        operator.add,
+    ]
 
     # ------------------------------------------------------------------
     # Análisis SQL
@@ -75,4 +86,7 @@ class AnalysisState(AgentState):
     # Control de errores
     # ------------------------------------------------------------------
 
-    errors: list[str]
+    errors: Annotated[
+        list[str],
+        operator.add,
+    ]
