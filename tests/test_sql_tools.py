@@ -190,7 +190,9 @@ def test_inspect_sql_schema_tool() -> None:
 
 
 def test_run_sql_query_updates_state() -> None:
-    """Verifica que run_sql_query actualice AnalysisState."""
+    """
+    Verifica que run_sql_query actualice el estado acumulativo.
+    """
     dataframe = create_test_dataframe()
     runtime = create_test_runtime(dataframe)
 
@@ -208,7 +210,7 @@ def test_run_sql_query_updates_state() -> None:
 
     assert isinstance(result, Command)
 
-    assert result.update["sql_query"] == (
+    expected_query = (
         "SELECT\n"
         "            producto,\n"
         "            SUM(ventas) AS total_ventas\n"
@@ -217,13 +219,24 @@ def test_run_sql_query_updates_state() -> None:
         "        ORDER BY total_ventas DESC"
     )
 
+    assert result.update["sql_query"] == [
+        expected_query
+    ]
+
     sql_results = result.update["sql_results"]
 
-    assert sql_results["row_count"] == 3
-    assert sql_results["columns"] == [
+    assert len(sql_results) == 1
+
+    sql_result = sql_results[0]
+
+    assert sql_result["row_count"] == 3
+    assert sql_result["columns"] == [
         "producto",
         "total_ventas",
     ]
+
+    assert sql_result["rows"][0]["producto"] == "A"
+    assert sql_result["rows"][0]["total_ventas"] == 250
 
     messages = result.update["messages"]
 

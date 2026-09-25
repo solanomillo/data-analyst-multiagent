@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from langchain.tools import ToolRuntime, tool
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.types import Command
 
 from app.graph.state import AnalysisState
@@ -73,6 +73,68 @@ def _build_state_update(
     }
 
 
+def _extract_narrative(
+    result: dict[str, Any],
+) -> str:
+    """
+    Extrae el contenido narrativo generado por el agente.
+
+    El Narrative Agent utiliza create_agent() sin herramientas.
+    Por ello, su respuesta final se encuentra en el último
+    AIMessage del historial de mensajes.
+
+    Args:
+        result: Estado devuelto por el Narrative Agent.
+
+    Returns:
+        Contenido textual de la respuesta del agente.
+
+    Raises:
+        RuntimeError:
+            Si no existe un AIMessage con contenido textual.
+    """
+    messages = result.get("messages", [])
+
+    for message in reversed(messages):
+        if not isinstance(message, AIMessage):
+            continue
+
+        content = message.content
+
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+
+    logger.error(
+        "El Narrative Agent no produjo un AIMessage con contenido."
+    )
+
+    raise RuntimeError(
+        "El Narrative Agent no produjo contenido narrativo."
+    )
+
+
+def _build_narrative_state_update(
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Construye la actualización de estado del Narrative Agent.
+
+    Args:
+        result: Estado devuelto por el Narrative Agent.
+
+    Returns:
+        Estado con la narrativa y el informe final.
+    """
+    narrative = _extract_narrative(result)
+
+    return {
+        "narrative": narrative,
+        "final_report": {
+            "narrative": narrative,
+        },
+    }
+
+
 def _create_specialist_state(
     state: AnalysisState,
 ) -> dict[str, Any]:
@@ -106,9 +168,13 @@ def _run_specialist(
 
     El agente especializado recibe el estado compartido del análisis,
     pero no recibe el historial conversacional del supervisor.
-    Después de completar su tarea, sus resultados permitidos se
-    incorporan al estado principal y se genera el ToolMessage que
-    responde a la llamada realizada por el supervisor.
+
+    Para los agentes analíticos, los resultados se obtienen directamente
+    de los campos definidos en su contrato de estado.
+
+    Para el Narrative Agent, la respuesta final del LLM se extrae del
+    último AIMessage y se transforma explícitamente en los campos
+    ``narrative`` y ``final_report``.
 
     Args:
         agent_name: Nombre del agente especializado.
@@ -122,8 +188,8 @@ def _run_specialist(
 
     Raises:
         RuntimeError:
-            Si el agente no devuelve un estado válido o no existe
-            un tool_call_id.
+            Si el agente no devuelve un estado válido, no produce
+            narrativa cuando corresponde o no existe un tool_call_id.
         KeyError:
             Si el agente no tiene contrato de estado.
     """
@@ -148,10 +214,16 @@ def _run_specialist(
             f"El agente '{agent_name}' no devolvió un estado válido."
         )
 
-    state_update = _build_state_update(
-        agent_name=agent_name,
-        result=result,
-    )
+    if agent_name == "narrative_agent":
+        state_update = _build_narrative_state_update(
+            result=result,
+        )
+
+    else:
+        state_update = _build_state_update(
+            agent_name=agent_name,
+            result=result,
+        )
 
     logger.info(
         "El agente '%s' produjo %d actualización(es) de estado.",

@@ -361,7 +361,7 @@ def run_sql_query(
         runtime: Contexto de ejecución del agente.
 
     Returns:
-        Command que actualiza sql_query y sql_results.
+        Command que acumula la consulta y su resultado.
     """
     dataframe = _get_dataframe(runtime)
 
@@ -377,8 +377,8 @@ def run_sql_query(
     return _create_sql_tool_command(
         result=result,
         state_update={
-            "sql_query": result["query"],
-            "sql_results": result,
+            "sql_query": [result["query"]],
+            "sql_results": [result],
         },
         tool_call_id=runtime.tool_call_id,
     )

@@ -1,61 +1,34 @@
-"""Pruebas de integración entre herramientas y agentes especializados."""
+"""Pruebas de integración para las herramientas de agentes."""
 
 from __future__ import annotations
 
 from unittest.mock import Mock
 
 import pandas as pd
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain.tools import ToolRuntime
-from langgraph.types import Command
 
 from app.graph.state import AnalysisState
 from app.tools.agent_tools import create_agent_tools
 
 
-def _create_runtime(
-    state: AnalysisState,
-    tool_call_id: str = "test_tool_call_id",
-) -> ToolRuntime:
+def _create_initial_state(dataframe: pd.DataFrame) -> AnalysisState:
     """
-    Crea un ToolRuntime controlado para las pruebas.
+    Crea un estado inicial para las pruebas de integración.
 
     Args:
-        state: Estado compartido utilizado durante la prueba.
-        tool_call_id: Identificador simulado de la llamada.
+        dataframe: DataFrame utilizado como dataset de prueba.
 
     Returns:
-        ToolRuntime configurado para testing.
-    """
-    return ToolRuntime(
-        state=state,
-        context={},
-        config={},
-        stream_writer=lambda _: None,
-        tool_call_id=tool_call_id,
-        store=None,
-    )
-
-
-def _create_initial_state(
-    dataframe: pd.DataFrame,
-) -> AnalysisState:
-    """
-    Crea un estado inicial mínimo para las pruebas.
-
-    Args:
-        dataframe: Dataset utilizado durante la prueba.
-
-    Returns:
-        Estado inicial del análisis.
+        Estado inicial del sistema de análisis.
     """
     return AnalysisState(
         dataset=dataframe,
-        dataset_name="ventas.csv",
-        user_question="Analiza las ventas.",
+        dataset_name="dataset_prueba.csv",
+        user_question="Analizar las ventas.",
         dataset_info={
-            "rows": len(dataframe),
-            "columns": len(dataframe.columns),
+            "rows": dataframe.shape[0],
+            "columns": dataframe.shape[1],
         },
         dataset_schema={},
         missing_values={},
@@ -66,8 +39,8 @@ def _create_initial_state(
         correlations={},
         eda_charts=[],
         chart_results=[],
-        sql_query="",
-        sql_results={},
+        sql_query=[],
+        sql_results=[],
         eda_analysis="",
         narrative="",
         final_report={},
@@ -76,8 +49,28 @@ def _create_initial_state(
     )
 
 
+def _create_runtime(state: AnalysisState) -> ToolRuntime:
+    """
+    Crea un ToolRuntime simulado para las pruebas.
+
+    Args:
+        state: Estado compartido del análisis.
+
+    Returns:
+        Instancia de ToolRuntime con el estado proporcionado.
+    """
+    return ToolRuntime(
+        state=state,
+        context=None,
+        config={},
+        stream_writer=lambda _: None,
+        tool_call_id="test-tool-call",
+        store=None,
+    )
+
+
 def test_specialist_agent_result_updates_state() -> None:
-    """Verifica que el resultado del agente actualiza el estado."""
+    """Verifica que un agente especializado actualiza el estado."""
 
     dataframe = pd.DataFrame(
         {
@@ -92,7 +85,7 @@ def test_specialist_agent_result_updates_state() -> None:
 
     data_quality_agent.invoke.return_value = {
         "eda_analysis": (
-            "El dataset contiene 2 registros y 2 columnas."
+            "El dataset presenta una estructura válida."
         ),
     }
 
@@ -114,25 +107,18 @@ def test_specialist_agent_result_updates_state() -> None:
     runtime = _create_runtime(state)
 
     # ToolRuntime es un argumento inyectado por LangChain.
-    # Para esta prueba unitaria ejecutamos directamente la función
-    # Python que está detrás de la StructuredTool.
+    # La prueba ejecuta directamente la función de la herramienta.
     result = data_quality_tool.func(runtime)
 
-    assert isinstance(result, Command)
-
     assert result.update["eda_analysis"] == (
-        "El dataset contiene 2 registros y 2 columnas."
+        "El dataset presenta una estructura válida."
     )
 
-    assert "messages" in result.update
-    assert len(result.update["messages"]) == 1
+    messages = result.update["messages"]
 
-    tool_message = result.update["messages"][0]
-
-    assert isinstance(tool_message, ToolMessage)
-    assert tool_message.tool_call_id == "test_tool_call_id"
-
-    data_quality_agent.invoke.assert_called_once_with(state)
+    assert len(messages) == 1
+    assert isinstance(messages[0], ToolMessage)
+    assert messages[0].tool_call_id == "test-tool-call"
 
 
 def test_narrative_agent_receives_current_state() -> None:
@@ -154,10 +140,11 @@ def test_narrative_agent_receives_current_state() -> None:
     narrative_agent = Mock()
 
     narrative_agent.invoke.return_value = {
-        "narrative": "Informe generado correctamente.",
-        "final_report": {
-            "summary": "Análisis completado.",
-        },
+        "messages": [
+            AIMessage(
+                content="Informe generado correctamente."
+            )
+        ],
     }
 
     agents = {
@@ -181,38 +168,27 @@ def test_narrative_agent_receives_current_state() -> None:
     # La prueba ejecuta directamente la función de la herramienta.
     result = narrative_tool.func(runtime)
 
-    assert isinstance(result, Command)
+    narrative_agent.invoke.assert_called_once()
+
+    received_state = narrative_agent.invoke.call_args.args[0]
+
+    assert received_state["dataset"] is dataframe
+    assert received_state["dataset_name"] == "dataset_prueba.csv"
+    assert received_state["user_question"] == "Analizar las ventas."
+    assert received_state["eda_analysis"] == (
+        "El producto B presenta mayores ventas."
+    )
 
     assert result.update["narrative"] == (
         "Informe generado correctamente."
     )
 
     assert result.update["final_report"] == {
-        "summary": "Análisis completado.",
+        "narrative": "Informe generado correctamente.",
     }
 
-    assert "messages" in result.update
-    assert len(result.update["messages"]) == 1
+    messages = result.update["messages"]
 
-    tool_message = result.update["messages"][0]
-
-    assert isinstance(tool_message, ToolMessage)
-    assert tool_message.tool_call_id == "test_tool_call_id"
-
-    narrative_agent.invoke.assert_called_once()
-
-    received_state = (
-        narrative_agent.invoke.call_args.args[0]
-    )
-
-    assert received_state["dataset_name"] == "ventas.csv"
-
-    assert received_state["user_question"] == (
-        "Analiza las ventas."
-    )
-
-    assert received_state["eda_analysis"] == (
-        "El producto B presenta mayores ventas."
-    )
-
-    assert received_state["dataset"].equals(dataframe)
+    assert len(messages) == 1
+    assert isinstance(messages[0], ToolMessage)
+    assert messages[0].tool_call_id == "test-tool-call"

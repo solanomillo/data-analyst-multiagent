@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+import operator
+from typing import Annotated, Any
 
 from langchain.agents import AgentState
 
@@ -52,8 +53,15 @@ class AnalysisState(AgentState):
     # Análisis SQL
     # ------------------------------------------------------------------
 
-    sql_query: str
-    sql_results: dict[str, Any]
+    sql_query: Annotated[
+        list[str],
+        operator.add,
+    ]
+
+    sql_results: Annotated[
+        list[dict[str, Any]],
+        operator.add,
+    ]
 
     # ------------------------------------------------------------------
     # Interpretación y resultado final

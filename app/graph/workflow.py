@@ -80,8 +80,8 @@ def create_initial_state(
         correlations={},
         eda_charts=[],
         chart_results=[],
-        sql_query="",
-        sql_results={},
+        sql_query=[],
+        sql_results=[],
         eda_analysis="",
         narrative="",
         final_report={},
@@ -155,6 +155,15 @@ def run_analysis(
 
         raise WorkflowError(
             "El workflow no devolvió un estado válido."
+        )
+
+    if not result.get("narrative"):
+        logger.error(
+            "El workflow finalizó sin producir narrativa."
+        )
+
+        raise WorkflowError(
+            "El workflow no produjo contenido narrativo."
         )
 
     logger.info(

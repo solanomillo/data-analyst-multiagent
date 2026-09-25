@@ -51,8 +51,8 @@ def test_create_initial_state() -> None:
     assert state["eda_charts"] == []
     assert state["chart_results"] == []
 
-    assert state["sql_query"] == ""
-    assert state["sql_results"] == {}
+    assert state["sql_query"] == []
+    assert state["sql_results"] == []
 
     assert state["eda_analysis"] == ""
     assert state["narrative"] == ""
