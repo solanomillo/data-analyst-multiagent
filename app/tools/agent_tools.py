@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain.tools import ToolRuntime, tool
-from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.types import Command
 
 from app.graph.state import AnalysisState
@@ -45,85 +46,274 @@ def _build_state_update(
     result: dict[str, Any],
 ) -> dict[str, Any]:
     """
-    Filtra el resultado de un agente según su contrato de estado.
+    Construye la actualización del estado a partir del resultado
+    de un agente especializado.
 
     Args:
         agent_name: Nombre del agente especializado.
-        result: Estado devuelto por el agente.
+        result: Resultado devuelto por el agente.
 
     Returns:
-        Diccionario con únicamente los campos permitidos.
+        Diccionario con los campos de estado relevantes.
 
     Raises:
-        KeyError:
-            Si no existe un contrato de estado para el agente.
+        ValueError:
+            Si el agente no tiene campos de estado configurados.
     """
-    if agent_name not in AGENT_STATE_FIELDS:
-        raise KeyError(
-            f"No existe un contrato de estado para el agente "
-            f"'{agent_name}'."
-        )
+    fields = AGENT_STATE_FIELDS.get(agent_name)
 
-    allowed_fields = AGENT_STATE_FIELDS[agent_name]
+    if fields is None:
+        raise ValueError(
+            f"No existen campos de estado configurados para "
+            f"el agente '{agent_name}'."
+        )
 
     return {
         field: result[field]
-        for field in allowed_fields
+        for field in fields
         if field in result
     }
+
+
+def _create_specialist_state(
+    state: AnalysisState,
+) -> dict[str, Any]:
+    """
+    Crea una copia del estado para ejecutar un agente especializado.
+
+    Los mensajes del supervisor no se reutilizan directamente dentro
+    del agente especializado para mantener separadas las conversaciones
+    de cada agente.
+
+    Args:
+        state: Estado compartido del workflow.
+
+    Returns:
+        Estado preparado para el agente especializado.
+    """
+    specialist_state = dict(state)
+    specialist_state["messages"] = []
+
+    return specialist_state
 
 
 def _extract_narrative(
     result: dict[str, Any],
 ) -> str:
     """
-    Extrae el contenido narrativo generado por el agente.
+    Extrae el contenido de la última respuesta del Narrative Agent.
 
-    El Narrative Agent utiliza create_agent() sin herramientas.
-    Por ello, su respuesta final se encuentra en el último
-    AIMessage del historial de mensajes.
+    Los agentes creados mediante create_agent() devuelven sus respuestas
+    del modelo dentro de la colección de mensajes.
 
     Args:
-        result: Estado devuelto por el Narrative Agent.
+        result: Resultado devuelto por el Narrative Agent.
 
     Returns:
-        Contenido textual de la respuesta del agente.
+        Texto generado por el modelo.
 
     Raises:
         RuntimeError:
-            Si no existe un AIMessage con contenido textual.
+            Si el agente no produce un AIMessage con contenido.
     """
     messages = result.get("messages", [])
 
     for message in reversed(messages):
-        if not isinstance(message, AIMessage):
-            continue
+        if isinstance(message, AIMessage):
+            content = message.content
 
-        content = message.content
-
-        if isinstance(content, str) and content.strip():
-            return content.strip()
-
-    logger.error(
-        "El Narrative Agent no produjo un AIMessage con contenido."
-    )
+            if isinstance(content, str) and content.strip():
+                return content.strip()
 
     raise RuntimeError(
-        "El Narrative Agent no produjo contenido narrativo."
+        "El Narrative Agent no produjo una respuesta de texto válida."
     )
+
+
+def _build_narrative_context(
+    state: AnalysisState,
+) -> str:
+    """
+    Construye el contexto de evidencia que recibirá el Narrative Agent.
+
+    El DataFrame original no se incluye en el contexto para evitar
+    enviar innecesariamente todos los registros al modelo. Se utilizan
+    únicamente los resultados calculados por las herramientas
+    especializadas y almacenados en el estado.
+
+    Args:
+        state: Estado actual del análisis.
+
+    Returns:
+        Contexto estructurado para el Narrative Agent.
+    """
+    evidence = {
+        "dataset_name": state.get("dataset_name"),
+        "user_question": state.get("user_question"),
+        "dataset_info": state.get("dataset_info"),
+        "dataset_schema": state.get("dataset_schema"),
+        "missing_values": state.get("missing_values"),
+        "duplicate_info": state.get("duplicate_info"),
+        "numeric_summary": state.get("numeric_summary"),
+        "categorical_summary": state.get(
+            "categorical_summary"
+        ),
+        "outliers": state.get("outliers"),
+        "correlations": state.get("correlations"),
+        "eda_analysis": state.get("eda_analysis"),
+        "sql_query": state.get("sql_query", []),
+        "sql_results": state.get(
+            "sql_results",
+            [],
+        ),
+        "chart_results": state.get(
+            "chart_results",
+            [],
+        ),
+        "errors": state.get("errors", []),
+    }
+
+    serialized_evidence = json.dumps(
+        evidence,
+        ensure_ascii=False,
+        default=str,
+        indent=2,
+    )
+
+    return (
+        "A continuación se proporciona el estado consolidado "
+        "del análisis realizado por los agentes especializados.\n\n"
+        "Debes elaborar el informe utilizando únicamente esta "
+        "evidencia. No inventes resultados ni afirmes que faltan "
+        "datos cuando estén presentes en este contexto.\n\n"
+        "ESTADO DEL ANÁLISIS:\n"
+        f"{serialized_evidence}"
+    )
+
+
+def _build_narrative_state(
+    state: AnalysisState,
+) -> dict[str, Any]:
+    """
+    Prepara el estado específico que recibirá el Narrative Agent.
+
+    Args:
+        state: Estado compartido del análisis.
+
+    Returns:
+        Estado con el contexto narrativo incluido como mensaje.
+    """
+    narrative_state = _create_specialist_state(state)
+
+    narrative_context = _build_narrative_context(state)
+
+    narrative_state["messages"] = [
+        HumanMessage(
+            content=narrative_context,
+        )
+    ]
+
+    return narrative_state
+
+
+def _build_chart_context(
+    state: AnalysisState,
+) -> str:
+    """
+    Construye el contexto necesario para que el Chart Analyst
+    determine y ejecute las herramientas de visualización apropiadas.
+
+    El DataFrame original no se incluye en el mensaje porque ya forma
+    parte del estado compartido y las herramientas de visualización
+    pueden acceder directamente a él mediante ToolRuntime.
+
+    Args:
+        state: Estado actual del análisis.
+
+    Returns:
+        Contexto estructurado para el Chart Analyst.
+    """
+    chart_context = {
+        "dataset_name": state.get("dataset_name"),
+        "user_question": state.get("user_question"),
+        "dataset_info": state.get("dataset_info"),
+        "dataset_schema": state.get("dataset_schema"),
+        "numeric_summary": state.get("numeric_summary"),
+        "categorical_summary": state.get(
+            "categorical_summary"
+        ),
+        "correlations": state.get("correlations"),
+        "missing_values": state.get("missing_values"),
+        "duplicate_info": state.get("duplicate_info"),
+        "outliers": state.get("outliers"),
+    }
+
+    serialized_context = json.dumps(
+        chart_context,
+        ensure_ascii=False,
+        default=str,
+        indent=2,
+    )
+
+    return (
+        "A continuación se proporciona el contexto del dataset "
+        "y los resultados del análisis de calidad disponibles.\n\n"
+        "Debes utilizar este contexto para determinar qué "
+        "visualizaciones son relevantes para responder la pregunta "
+        "del usuario.\n\n"
+        "IMPORTANTE:\n"
+        "- Analiza primero la pregunta del usuario.\n"
+        "- Si la pregunta requiere una visualización, debes "
+        "ejecutar las herramientas de visualización disponibles.\n"
+        "- No te limites a recomendar un gráfico en texto.\n"
+        "- Las herramientas tienen acceso al DataFrame original "
+        "mediante el estado compartido.\n"
+        "- No inventes columnas ni valores.\n\n"
+        "CONTEXTO PARA EL CHART ANALYST:\n"
+        f"{serialized_context}"
+    )
+
+
+def _build_chart_state(
+    state: AnalysisState,
+) -> dict[str, Any]:
+    """
+    Prepara el estado específico que recibirá el Chart Analyst.
+
+    Args:
+        state: Estado compartido del análisis.
+
+    Returns:
+        Estado con el contexto de visualización incluido como mensaje.
+    """
+    chart_state = _create_specialist_state(state)
+
+    chart_context = _build_chart_context(state)
+
+    chart_state["messages"] = [
+        HumanMessage(
+            content=chart_context,
+        )
+    ]
+
+    return chart_state
 
 
 def _build_narrative_state_update(
     result: dict[str, Any],
 ) -> dict[str, Any]:
     """
-    Construye la actualización de estado del Narrative Agent.
+    Construye la actualización del estado generada por el Narrative Agent.
 
     Args:
-        result: Estado devuelto por el Narrative Agent.
+        result: Resultado devuelto por el Narrative Agent.
 
     Returns:
-        Estado con la narrativa y el informe final.
+        Actualización con el informe narrativo.
+
+    Raises:
+        RuntimeError:
+            Si no se puede extraer una respuesta narrativa válida.
     """
     narrative = _extract_narrative(result)
 
@@ -135,89 +325,66 @@ def _build_narrative_state_update(
     }
 
 
-def _create_specialist_state(
-    state: AnalysisState,
-) -> dict[str, Any]:
-    """
-    Crea el estado que recibirá un agente especializado.
-
-    El agente especializado comparte los datos y resultados del
-    análisis, pero inicia su propia conversación. Esto evita enviarle
-    mensajes del supervisor que contengan tool_calls pendientes.
-
-    Args:
-        state: Estado actual del supervisor.
-
-    Returns:
-        Copia del estado con el historial de mensajes vacío.
-    """
-    specialist_state = dict(state)
-    specialist_state["messages"] = []
-
-    return specialist_state
-
-
 def _run_specialist(
     agent_name: str,
-    agent: Any,
+    agents: dict[str, Any],
     state: AnalysisState,
-    tool_call_id: str | None,
+    tool_call_id: str,
 ) -> Command:
     """
-    Ejecuta un agente especializado y propaga sus resultados.
-
-    El agente especializado recibe el estado compartido del análisis,
-    pero no recibe el historial conversacional del supervisor.
-
-    Para los agentes analíticos, los resultados se obtienen directamente
-    de los campos definidos en su contrato de estado.
-
-    Para el Narrative Agent, la respuesta final del LLM se extrae del
-    último AIMessage y se transforma explícitamente en los campos
-    ``narrative`` y ``final_report``.
+    Ejecuta un agente especializado y devuelve su actualización de estado.
 
     Args:
-        agent_name: Nombre del agente especializado.
-        agent: Instancia del agente que será ejecutado.
-        state: Estado actual del supervisor.
+        agent_name: Nombre del agente que se ejecutará.
+        agents: Registro de agentes especializados.
+        state: Estado actual del workflow.
         tool_call_id: Identificador de la llamada de herramienta.
 
     Returns:
-        Command con la actualización del estado y el ToolMessage
-        correspondiente.
+        Command con los resultados del agente.
 
     Raises:
+        ValueError:
+            Si el agente no existe o el tool_call_id no es válido.
         RuntimeError:
-            Si el agente no devuelve un estado válido, no produce
-            narrativa cuando corresponde o no existe un tool_call_id.
-        KeyError:
-            Si el agente no tiene contrato de estado.
+            Si el agente no devuelve un resultado válido.
     """
+    if not tool_call_id:
+        raise ValueError(
+            "La herramienta requiere un tool_call_id válido."
+        )
+
+    agent = agents.get(agent_name)
+
+    if agent is None:
+        raise ValueError(
+            f"No existe el agente especializado '{agent_name}'."
+        )
+
     logger.info(
         "Ejecutando agente especializado: %s.",
         agent_name,
     )
 
-    specialist_state = _create_specialist_state(
-        state=state,
-    )
+    if agent_name == "narrative_agent":
+        specialist_state = _build_narrative_state(state)
+
+    elif agent_name == "chart_analyst":
+        specialist_state = _build_chart_state(state)
+
+    else:
+        specialist_state = _create_specialist_state(state)
 
     result = agent.invoke(specialist_state)
 
     if not isinstance(result, dict):
-        logger.error(
-            "El agente '%s' devolvió un resultado inválido.",
-            agent_name,
-        )
-
         raise RuntimeError(
-            f"El agente '{agent_name}' no devolvió un estado válido."
+            f"El agente '{agent_name}' no devolvió un resultado "
+            "en formato diccionario."
         )
 
     if agent_name == "narrative_agent":
-        state_update = _build_narrative_state_update(
-            result=result,
-        )
+        state_update = _build_narrative_state_update(result)
 
     else:
         state_update = _build_state_update(
@@ -226,30 +393,25 @@ def _run_specialist(
         )
 
     logger.info(
-        "El agente '%s' produjo %d actualización(es) de estado.",
+        "El agente '%s' produjo %s actualización(es) de estado.",
         agent_name,
         len(state_update),
     )
 
-    if tool_call_id is None:
-        raise RuntimeError(
-            "No existe un tool_call_id para completar la llamada "
-            f"del agente '{agent_name}'."
-        )
-
     tool_message = ToolMessage(
         content=(
-            f"El agente '{agent_name}' completó la tarea "
-            "correctamente."
+            f"El agente '{agent_name}' completó "
+            "la tarea correctamente."
         ),
-        tool_call_id=tool_call_id,
         name=agent_name,
+        tool_call_id=tool_call_id,
     )
 
-    state_update["messages"] = [tool_message]
-
     return Command(
-        update=state_update,
+        update={
+            **state_update,
+            "messages": [tool_message],
+        }
     )
 
 
@@ -257,87 +419,99 @@ def create_agent_tools(
     agents: dict[str, Any],
 ) -> list[Any]:
     """
-    Crea las herramientas de delegación del supervisor.
+    Crea las herramientas utilizadas por el supervisor.
 
     Args:
         agents: Registro de agentes especializados.
 
     Returns:
-        Lista de herramientas disponibles para el supervisor.
-
-    Raises:
-        KeyError:
-            Si falta algún agente requerido en el registro.
+        Lista de herramientas de delegación.
     """
-    required_agents = set(AGENT_STATE_FIELDS)
-    missing_agents = required_agents - agents.keys()
 
-    if missing_agents:
-        raise KeyError(
-            "Faltan agentes requeridos en el registro: "
-            f"{sorted(missing_agents)}."
-        )
-
-    @tool
+    @tool(
+        "call_data_quality_agent",
+        description=(
+            "Ejecuta el Data Quality Agent para analizar "
+            "la estructura y calidad del dataset."
+        ),
+    )
     def call_data_quality_agent(
         runtime: ToolRuntime,
     ) -> Command:
-        """Ejecuta el Data Quality Agent y actualiza el estado."""
+        """Ejecuta el Data Quality Agent."""
         logger.info(
             "Supervisor delegando tarea al Data Quality Agent."
         )
 
         return _run_specialist(
             agent_name="data_quality_agent",
-            agent=agents["data_quality_agent"],
+            agents=agents,
             state=runtime.state,
             tool_call_id=runtime.tool_call_id,
         )
 
-    @tool
+    @tool(
+        "call_sql_agent",
+        description=(
+            "Ejecuta el SQL Analyst para realizar consultas "
+            "de lectura sobre el dataset."
+        ),
+    )
     def call_sql_agent(
         runtime: ToolRuntime,
     ) -> Command:
-        """Ejecuta el SQL Analyst y actualiza el estado."""
+        """Ejecuta el SQL Analyst."""
         logger.info(
             "Supervisor delegando tarea al SQL Analyst."
         )
 
         return _run_specialist(
             agent_name="sql_analyst",
-            agent=agents["sql_analyst"],
+            agents=agents,
             state=runtime.state,
             tool_call_id=runtime.tool_call_id,
         )
 
-    @tool
+    @tool(
+        "call_chart_agent",
+        description=(
+            "Ejecuta el Chart Analyst para preparar datos "
+            "de visualización relevantes."
+        ),
+    )
     def call_chart_agent(
         runtime: ToolRuntime,
     ) -> Command:
-        """Ejecuta el Chart Analyst y actualiza el estado."""
+        """Ejecuta el Chart Analyst."""
         logger.info(
             "Supervisor delegando tarea al Chart Analyst."
         )
 
         return _run_specialist(
             agent_name="chart_analyst",
-            agent=agents["chart_analyst"],
+            agents=agents,
             state=runtime.state,
             tool_call_id=runtime.tool_call_id,
         )
 
-    @tool
+    @tool(
+        "call_narrative_agent",
+        description=(
+            "Ejecuta el Narrative Agent para generar el "
+            "informe final utilizando la evidencia acumulada."
+        ),
+    )
     def call_narrative_agent(
         runtime: ToolRuntime,
     ) -> Command:
-        """Ejecuta el Narrative Agent y actualiza el estado."""
+        """Ejecuta el Narrative Agent."""
         logger.info(
             "Supervisor delegando tarea al Narrative Agent."
         )
 
         return _run_specialist(
             agent_name="narrative_agent",
-            agent=agents["narrative_agent"],
+            agents=agents,
             state=runtime.state,
             tool_call_id=runtime.tool_call_id,
         )
