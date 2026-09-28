@@ -116,6 +116,40 @@ def test_get_numeric_summary() -> None:
     assert result["edad"]["count"] == 5.0
 
 
+def test_get_numeric_summary_without_numeric_columns() -> None:
+    """Verifica que no haya errores sin columnas numéricas."""
+    dataframe = pd.DataFrame(
+        {
+            "nombre": ["Juan", "Maria", "Pedro"],
+            "ciudad": ["Salta", "Orán", "Tartagal"],
+        }
+    )
+
+    result = get_numeric_summary(dataframe)
+
+    assert result == {}
+
+
+def test_get_numeric_summary_with_all_null_column() -> None:
+    """Verifica estadísticas cuando una columna numérica es completamente nula."""
+    dataframe = pd.DataFrame(
+        {
+            "edad": pd.Series(
+                [None, None, None],
+                dtype="float64",
+            ),
+            "ingresos": [1000, 1500, 2000],
+        }
+    )
+
+    result = get_numeric_summary(dataframe)
+
+    assert "edad" in result
+    assert "ingresos" in result
+    assert result["edad"]["count"] == 0.0
+    assert result["ingresos"]["count"] == 3.0
+
+
 def test_get_categorical_summary() -> None:
     """Verifica el análisis de variables categóricas."""
     dataframe = create_test_dataframe()
@@ -124,6 +158,20 @@ def test_get_categorical_summary() -> None:
 
     assert "ciudad" in result
     assert result["ciudad"]["unique_values"] == 3
+
+
+def test_get_categorical_summary_without_categorical_columns() -> None:
+    """Verifica que no haya resultados sin columnas categóricas."""
+    dataframe = pd.DataFrame(
+        {
+            "edad": [20, 30, 40],
+            "ingresos": [1000, 2000, 3000],
+        }
+    )
+
+    result = get_categorical_summary(dataframe)
+
+    assert result == {}
 
 
 def test_detect_outliers() -> None:
@@ -136,6 +184,20 @@ def test_detect_outliers() -> None:
     assert result["edad"]["outlier_count"] >= 1
 
 
+def test_detect_outliers_without_numeric_columns() -> None:
+    """Verifica que no haya errores sin columnas numéricas."""
+    dataframe = pd.DataFrame(
+        {
+            "nombre": ["Juan", "Maria", "Pedro"],
+            "ciudad": ["Salta", "Orán", "Tartagal"],
+        }
+    )
+
+    result = detect_outliers(dataframe)
+
+    assert result == {}
+
+
 def test_calculate_correlations() -> None:
     """Verifica el cálculo de correlaciones."""
     dataframe = create_test_dataframe()
@@ -145,6 +207,50 @@ def test_calculate_correlations() -> None:
     assert "edad" in result
     assert "ingresos" in result
     assert result["edad"]["ingresos"] > 0
+
+
+def test_calculate_correlations_without_numeric_columns() -> None:
+    """Verifica que no haya correlaciones sin variables numéricas."""
+    dataframe = pd.DataFrame(
+        {
+            "nombre": ["Juan", "Maria", "Pedro"],
+            "ciudad": ["Salta", "Orán", "Tartagal"],
+        }
+    )
+
+    result = calculate_correlations(dataframe)
+
+    assert result == {}
+
+
+def test_calculate_correlations_with_single_numeric_column() -> None:
+    """Verifica que no se calculen correlaciones con una sola variable."""
+    dataframe = pd.DataFrame(
+        {
+            "edad": [20, 30, 40],
+            "ciudad": ["Salta", "Orán", "Tartagal"],
+        }
+    )
+
+    result = calculate_correlations(dataframe)
+
+    assert result == {}
+
+
+def test_calculate_correlations_with_constant_column() -> None:
+    """Verifica el comportamiento con una variable numérica constante."""
+    dataframe = pd.DataFrame(
+        {
+            "edad": [20, 20, 20, 20],
+            "ingresos": [1000, 1500, 2000, 2500],
+        }
+    )
+
+    result = calculate_correlations(dataframe)
+
+    assert "edad" in result
+    assert "ingresos" in result
+    assert pd.isna(result["edad"]["ingresos"])
 
 
 def test_inspect_dataset_schema_updates_state() -> None:
@@ -166,7 +272,7 @@ def test_inspect_dataset_schema_updates_state() -> None:
 
 
 def test_inspect_missing_values_updates_state() -> None:
-    """Verifica que los valores nulos actualicen AnalysisState."""
+    """Verifica que los valores nulos actualicen el estado."""
     dataframe = create_test_dataframe()
 
     dataframe.loc[0, "edad"] = None
@@ -182,7 +288,7 @@ def test_inspect_missing_values_updates_state() -> None:
 
 
 def test_inspect_duplicates_updates_state() -> None:
-    """Verifica que los duplicados actualicen AnalysisState."""
+    """Verifica que los duplicados actualicen el estado."""
     dataframe = create_test_dataframe()
 
     dataframe = pd.concat(
