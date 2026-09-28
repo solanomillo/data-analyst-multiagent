@@ -6,8 +6,8 @@ import json
 import logging
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain.tools import ToolRuntime, tool
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 
 from app.graph.state import AnalysisState
@@ -97,6 +97,26 @@ def _create_specialist_state(
     return specialist_state
 
 
+def _serialize_context(
+    context: dict[str, Any],
+) -> str:
+    """
+    Serializa un contexto estructurado para enviarlo al LLM.
+
+    Args:
+        context: Información contextual del análisis.
+
+    Returns:
+        Representación JSON legible del contexto.
+    """
+    return json.dumps(
+        context,
+        ensure_ascii=False,
+        default=str,
+        indent=2,
+    )
+
+
 def _extract_narrative(
     result: dict[str, Any],
 ) -> str:
@@ -173,12 +193,7 @@ def _build_narrative_context(
         "errors": state.get("errors", []),
     }
 
-    serialized_evidence = json.dumps(
-        evidence,
-        ensure_ascii=False,
-        default=str,
-        indent=2,
-    )
+    serialized_evidence = _serialize_context(evidence)
 
     return (
         "A continuación se proporciona el estado consolidado "
@@ -248,12 +263,7 @@ def _build_chart_context(
         "outliers": state.get("outliers"),
     }
 
-    serialized_context = json.dumps(
-        chart_context,
-        ensure_ascii=False,
-        default=str,
-        indent=2,
-    )
+    serialized_context = _serialize_context(chart_context)
 
     return (
         "A continuación se proporciona el contexto del dataset "
@@ -297,6 +307,94 @@ def _build_chart_state(
     ]
 
     return chart_state
+
+
+def _build_sql_context(
+    state: AnalysisState,
+) -> str:
+    """
+    Construye el contexto que recibirá el SQL Analyst.
+
+    El SQL Analyst necesita conocer explícitamente la pregunta del
+    usuario y la estructura real del dataset para poder determinar
+    qué consulta debe ejecutar.
+
+    No se incluye el DataFrame completo. El DataFrame permanece en el
+    estado compartido y las herramientas SQL acceden a él mediante
+    ToolRuntime.
+
+    Args:
+        state: Estado actual del análisis.
+
+    Returns:
+        Contexto estructurado para el SQL Analyst.
+    """
+    sql_context = {
+        "dataset_name": state.get("dataset_name"),
+        "user_question": state.get("user_question"),
+        "dataset_info": state.get("dataset_info"),
+        "dataset_schema": state.get("dataset_schema"),
+        "missing_values": state.get("missing_values"),
+        "duplicate_info": state.get("duplicate_info"),
+        "numeric_summary": state.get("numeric_summary"),
+        "categorical_summary": state.get(
+            "categorical_summary"
+        ),
+        "outliers": state.get("outliers"),
+        "correlations": state.get("correlations"),
+    }
+
+    serialized_context = _serialize_context(sql_context)
+
+    return (
+        "A continuación se proporciona el contexto necesario "
+        "para realizar el análisis SQL.\n\n"
+        "La pregunta del usuario es el objetivo principal del "
+        "análisis. Debes determinar qué operación analítica "
+        "responde realmente a esa pregunta utilizando únicamente "
+        "las columnas existentes en el dataset.\n\n"
+        "IMPORTANTE:\n"
+        "- Analiza primero la pregunta del usuario.\n"
+        "- Inspecciona el schema real antes de construir la consulta.\n"
+        "- Utiliza los nombres de columnas proporcionados por el "
+        "schema real.\n"
+        "- Utiliza los resultados de calidad como contexto adicional, "
+        "no como sustituto de la pregunta.\n"
+        "- No inventes columnas, métricas, valores ni resultados.\n"
+        "- No ejecutes consultas genéricas de perfilado si la pregunta "
+        "requiere una agregación o análisis específico.\n"
+        "- Las herramientas SQL tienen acceso al DataFrame original "
+        "mediante el estado compartido.\n"
+        "- La consulta debe responder directamente a la pregunta "
+        "del usuario.\n\n"
+        "CONTEXTO PARA EL SQL ANALYST:\n"
+        f"{serialized_context}"
+    )
+
+
+def _build_sql_state(
+    state: AnalysisState,
+) -> dict[str, Any]:
+    """
+    Prepara el estado específico que recibirá el SQL Analyst.
+
+    Args:
+        state: Estado compartido del análisis.
+
+    Returns:
+        Estado con el contexto SQL incluido como mensaje.
+    """
+    sql_state = _create_specialist_state(state)
+
+    sql_context = _build_sql_context(state)
+
+    sql_state["messages"] = [
+        HumanMessage(
+            content=sql_context,
+        )
+    ]
+
+    return sql_state
 
 
 def _build_narrative_state_update(
@@ -371,6 +469,9 @@ def _run_specialist(
 
     elif agent_name == "chart_analyst":
         specialist_state = _build_chart_state(state)
+
+    elif agent_name == "sql_analyst":
+        specialist_state = _build_sql_state(state)
 
     else:
         specialist_state = _create_specialist_state(state)
