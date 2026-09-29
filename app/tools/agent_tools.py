@@ -430,6 +430,57 @@ def _build_narrative_state_update(
     }
 
 
+def _defer_chart_until_sql_available(
+    state: AnalysisState,
+    tool_call_id: str,
+) -> Command | None:
+    """Evita ejecutar Chart Analyst antes de disponer de evidencia SQL.
+
+    LangGraph puede ejecutar varias herramientas solicitadas por el
+    supervisor dentro de la misma ronda antes de consolidar sus
+    actualizaciones de estado. Por ese motivo, Chart Analyst podría
+    recibir un estado sin ``sql_results`` aunque SQL Analyst también
+    haya sido solicitado en esa misma ronda.
+
+    Si todavía no existe evidencia SQL, la llamada al Chart Analyst se
+    difiere de forma explícita. El supervisor recibe un ToolMessage y
+    puede continuar con SQL Analyst; en la siguiente ronda Chart Analyst
+    encontrará los resultados ya consolidados.
+
+    Args:
+        state: Estado compartido del workflow.
+        tool_call_id: Identificador de la llamada de herramienta.
+
+    Returns:
+        ``Command`` con el mensaje de dependencia si SQL todavía no
+        está disponible; en caso contrario, ``None``.
+    """
+    if state.get("sql_results"):
+        return None
+
+    logger.info(
+        "Chart Analyst diferido: todavía no existen resultados SQL "
+        "consolidados en el estado compartido."
+    )
+
+    tool_message = ToolMessage(
+        content=(
+            "Chart Analyst no puede ejecutarse todavía porque no hay "
+            "resultados SQL consolidados en el estado. Ejecuta primero "
+            "el SQL Analyst y vuelve a ejecutar Chart Analyst cuando "
+            "los resultados SQL estén disponibles."
+        ),
+        name="chart_analyst",
+        tool_call_id=tool_call_id,
+    )
+
+    return Command(
+        update={
+            "messages": [tool_message],
+        }
+    )
+
+
 def _run_specialist(
     agent_name: str,
     agents: dict[str, Any],
@@ -470,6 +521,15 @@ def _run_specialist(
         "Ejecutando agente especializado: %s.",
         agent_name,
     )
+
+    if agent_name == "chart_analyst":
+        deferred = _defer_chart_until_sql_available(
+            state=state,
+            tool_call_id=tool_call_id,
+        )
+
+        if deferred is not None:
+            return deferred
 
     if agent_name == "narrative_agent":
         specialist_state = _build_narrative_state(state)
@@ -583,14 +643,17 @@ def create_agent_tools(
     @tool(
         "call_chart_agent",
         description=(
-            "Ejecuta el Chart Analyst para preparar datos "
-            "de visualización relevantes."
+            "Ejecuta el Chart Analyst para preparar datos de "
+            "visualización relevantes. Requiere que SQL Analyst haya "
+            "terminado y que existan resultados SQL consolidados en "
+            "el estado. Si todavía no existen, ejecuta primero "
+            "call_sql_agent y después vuelve a llamar a esta herramienta."
         ),
     )
     def call_chart_agent(
         runtime: ToolRuntime,
     ) -> Command:
-        """Ejecuta el Chart Analyst."""
+        """Ejecuta Chart Analyst después de disponer de SQL."""
         logger.info(
             "Supervisor delegando tarea al Chart Analyst."
         )

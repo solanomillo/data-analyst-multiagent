@@ -280,3 +280,64 @@ def test_run_specialist_uses_chart_context() -> None:
     assert isinstance(message, HumanMessage)
     assert state["user_question"] in message.content
     assert "2500" in message.content
+
+def test_chart_agent_is_deferred_without_sql_results() -> None:
+    """Verifica que Chart Analyst espere a la consolidación de SQL."""
+    state = _build_test_state()
+
+    chart_agent = Mock()
+    agents = {
+        "chart_analyst": chart_agent,
+    }
+
+    result = _run_specialist(
+        agent_name="chart_analyst",
+        agents=agents,
+        state=state,
+        tool_call_id="tool-chart-deferred",
+    )
+
+    chart_agent.invoke.assert_not_called()
+    assert result.update.get("chart_results") is None
+
+    messages = result.update["messages"]
+    assert len(messages) == 1
+    assert (
+        "SQL Analyst" in messages[0].content
+    )
+
+
+def test_chart_agent_runs_after_sql_results_are_available() -> None:
+    """Verifica que Chart Analyst se ejecute cuando SQL ya está disponible."""
+    state = _build_test_state()
+    state["sql_results"] = [
+        {
+            "rows": [
+                {"segmento": "A", "ingresos": 2500},
+            ]
+        }
+    ]
+
+    chart_agent = Mock()
+    chart_agent.invoke.return_value = {
+        "chart_results": [
+            {"type": "grouped_bar"},
+        ]
+    }
+
+    agents = {
+        "chart_analyst": chart_agent,
+    }
+
+    result = _run_specialist(
+        agent_name="chart_analyst",
+        agents=agents,
+        state=state,
+        tool_call_id="tool-chart-ready",
+    )
+
+    chart_agent.invoke.assert_called_once()
+    assert result.update["chart_results"] == [
+        {"type": "grouped_bar"},
+    ]
+
