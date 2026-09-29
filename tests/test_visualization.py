@@ -1,181 +1,60 @@
-"""Pruebas para el servicio de visualización."""
+"""Pruebas del servicio de visualización."""
 
 from __future__ import annotations
 
+import plotly.graph_objects as go
 import pytest
-from plotly.graph_objects import Figure
 
 from app.services.visualization import (
     VisualizationError,
     create_chart,
-    create_charts,
 )
 
 
-def test_create_categorical_chart() -> None:
-    """Verifica la creación de un gráfico categórico."""
+def test_create_grouped_bar_chart() -> None:
+    """Verifica la creación de un gráfico agrupado desde SQL."""
     result = {
-        "type": "categorical_distribution",
-        "column": "Categoría",
-        "values": {
-            "Electrónica": 26,
-            "Hogar": 14,
-            "Mobiliario": 10,
-        },
-    }
-
-    figure = create_chart(result)
-
-    assert isinstance(figure, Figure)
-    assert len(figure.data) == 1
-    assert figure.data[0].type == "bar"
-
-
-def test_create_numeric_distribution_chart() -> None:
-    """Verifica la creación de un histograma numérico."""
-    result = {
-        "type": "numeric_distribution",
-        "column": "Cantidad",
-        "count": 5,
-        "values": [1.0, 2.0, 3.0, 4.0, 5.0],
-    }
-
-    figure = create_chart(result)
-
-    assert isinstance(figure, Figure)
-    assert len(figure.data) == 1
-    assert figure.data[0].type == "histogram"
-
-
-def test_create_correlation_chart() -> None:
-    """Verifica la creación del mapa de calor de correlaciones."""
-    result = {
-        "type": "correlation_matrix",
-        "columns": [
-            "Cantidad",
-            "Precio_Unitario",
+        "type": "grouped_bar",
+        "source": "sql_result",
+        "result_index": 0,
+        "x_column": "categoria",
+        "series_column": "region",
+        "metric_column": "ventas",
+        "data": [
+            {
+                "categoria": "A",
+                "region": "Norte",
+                "ventas": 1200.0,
+            },
+            {
+                "categoria": "A",
+                "region": "Sur",
+                "ventas": 900.0,
+            },
+            {
+                "categoria": "B",
+                "region": "Norte",
+                "ventas": 1500.0,
+            },
         ],
-        "values": {
-            "Cantidad": {
-                "Cantidad": 1.0,
-                "Precio_Unitario": -0.51,
-            },
-            "Precio_Unitario": {
-                "Cantidad": -0.51,
-                "Precio_Unitario": 1.0,
-            },
-        },
     }
 
     figure = create_chart(result)
 
-    assert isinstance(figure, Figure)
-    assert len(figure.data) == 1
-    assert figure.data[0].type == "heatmap"
+    assert isinstance(figure, go.Figure)
+    assert len(figure.data) == 2
+    assert all(trace.type == "bar" for trace in figure.data)
 
 
-def test_create_scatter_chart() -> None:
-    """Verifica la creación de un gráfico de dispersión."""
+def test_create_grouped_bar_chart_rejects_invalid_data() -> None:
+    """Verifica el rechazo de datos agrupados inválidos."""
     result = {
-        "type": "scatter",
-        "x_column": "Cantidad",
-        "y_column": "Precio_Unitario",
-        "count": 4,
-        "x_values": [1, 2, 3, 4],
-        "y_values": [100, 200, 150, 300],
-    }
-
-    figure = create_chart(result)
-
-    assert isinstance(figure, Figure)
-    assert len(figure.data) == 1
-    assert figure.data[0].type == "scatter"
-
-
-def test_create_chart_rejects_unknown_type() -> None:
-    """Verifica el rechazo de tipos de visualización desconocidos."""
-    result = {
-        "type": "unknown_chart",
+        "type": "grouped_bar",
+        "x_column": "categoria",
+        "series_column": "region",
+        "metric_column": "ventas",
+        "data": None,
     }
 
     with pytest.raises(VisualizationError):
         create_chart(result)
-
-
-def test_create_chart_rejects_invalid_categorical_result() -> None:
-    """Verifica la validación de resultados categóricos inválidos."""
-    result = {
-        "type": "categorical_distribution",
-        "column": "Categoría",
-        "values": None,
-    }
-
-    with pytest.raises(VisualizationError):
-        create_chart(result)
-
-
-def test_create_chart_rejects_invalid_scatter_result() -> None:
-    """Verifica la validación de resultados de dispersión inválidos."""
-    result = {
-        "type": "scatter",
-        "x_column": "Cantidad",
-        "y_column": "Precio_Unitario",
-        "x_values": [1, 2, 3],
-        "y_values": [100, 200],
-    }
-
-    with pytest.raises(VisualizationError):
-        create_chart(result)
-
-
-def test_create_charts_builds_multiple_visualizations() -> None:
-    """Verifica la construcción de múltiples visualizaciones."""
-    results = [
-        {
-            "type": "categorical_distribution",
-            "column": "Categoría",
-            "values": {
-                "Electrónica": 26,
-                "Hogar": 14,
-            },
-        },
-        {
-            "type": "numeric_distribution",
-            "column": "Cantidad",
-            "values": [1.0, 2.0, 3.0, 4.0],
-        },
-        {
-            "type": "scatter",
-            "x_column": "Cantidad",
-            "y_column": "Precio_Unitario",
-            "x_values": [1, 2, 3],
-            "y_values": [100, 200, 300],
-        },
-    ]
-
-    figures = create_charts(results)
-
-    assert len(figures) == 3
-    assert all(isinstance(figure, Figure) for figure in figures)
-
-
-def test_create_charts_skips_invalid_results() -> None:
-    """Verifica que un resultado inválido no impida otros gráficos."""
-    results = [
-        {
-            "type": "unknown_chart",
-        },
-        {
-            "type": "categorical_distribution",
-            "column": "Región",
-            "values": {
-                "Norte": 12,
-                "Sur": 11,
-            },
-        },
-    ]
-
-    figures = create_charts(results)
-
-    assert len(figures) == 1
-    assert isinstance(figures[0], Figure)

@@ -343,6 +343,101 @@ def _create_scatter_chart(
     )
 
 
+
+def _create_grouped_bar_chart(
+    result: dict[str, Any],
+) -> go.Figure:
+    """
+    Construye un gráfico de barras agrupadas desde evidencia SQL.
+
+    Args:
+        result: Resultado generado por la herramienta SQL de visualización.
+
+    Returns:
+        Figura de Plotly.
+
+    Raises:
+        VisualizationError:
+            Si el resultado no contiene la estructura esperada.
+    """
+    x_column = result.get("x_column")
+    series_column = result.get("series_column")
+    metric_column = result.get("metric_column")
+    data = result.get("data")
+
+    if not x_column or not series_column or not metric_column:
+        raise VisualizationError(
+            "El resultado agrupado no contiene las columnas esperadas."
+        )
+
+    if not isinstance(data, list) or not data:
+        raise VisualizationError(
+            "El resultado agrupado no contiene datos válidos."
+        )
+
+    if not all(isinstance(row, dict) for row in data):
+        raise VisualizationError(
+            "Los datos del resultado agrupado deben ser diccionarios."
+        )
+
+    required_columns = {
+        str(x_column),
+        str(series_column),
+        str(metric_column),
+    }
+
+    if not all(required_columns.issubset(row.keys()) for row in data):
+        raise VisualizationError(
+            "Los datos del resultado agrupado no contienen las columnas requeridas."
+        )
+
+    dataframe = pd.DataFrame(data)
+
+    if not pd.api.types.is_numeric_dtype(dataframe[metric_column]):
+        raise VisualizationError(
+            f"La métrica '{metric_column}' debe ser numérica."
+        )
+
+    figure = px.bar(
+        dataframe,
+        x=str(x_column),
+        y=str(metric_column),
+        color=str(series_column),
+        barmode="group",
+        labels={
+            str(x_column): str(x_column),
+            str(series_column): str(series_column),
+            str(metric_column): str(metric_column),
+        },
+    )
+
+    figure.update_traces(
+        hovertemplate=(
+            f"{x_column}: %{{x}}"
+            f"<br>{series_column}: %{{fullData.name}}"
+            f"<br>{metric_column}: %{{y}}"
+            "<extra></extra>"
+        ),
+    )
+
+    figure.update_xaxes(
+        title_text=str(x_column),
+    )
+
+    figure.update_yaxes(
+        title_text=str(metric_column),
+        rangemode="tozero",
+    )
+
+    return _apply_common_layout(
+        figure=figure,
+        title=f"{metric_column} por {x_column} y {series_column}",
+        description=(
+            f"Comparación de {metric_column} para cada combinación "
+            f"de {x_column} y {series_column}."
+        ),
+    )
+
 def create_chart(
     result: dict[str, Any],
 ) -> go.Figure:
@@ -377,6 +472,9 @@ def create_chart(
 
     if chart_type == "scatter":
         return _create_scatter_chart(result)
+
+    if chart_type == "grouped_bar":
+        return _create_grouped_bar_chart(result)
 
     raise VisualizationError(
         f"Tipo de visualización no soportado: {chart_type!r}."

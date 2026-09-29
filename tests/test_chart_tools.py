@@ -14,10 +14,12 @@ from app.graph.state import AnalysisState
 from app.tools.chart_tools import (
     get_categorical_distribution,
     get_correlation_matrix,
+    get_grouped_sql_result,
     get_numeric_distribution,
     get_scatter_data,
     inspect_categorical_distribution,
     inspect_correlation_matrix,
+    inspect_grouped_sql_result,
     inspect_numeric_distribution,
     inspect_scatter_data,
 )
@@ -389,3 +391,160 @@ def test_chart_tool_requires_tool_call_id() -> None:
             "edad",
             runtime,
         )
+
+
+def test_get_grouped_sql_result() -> None:
+    """Verifica la preparación de un resultado SQL multidimensional."""
+    sql_results = [
+        {
+            "query": "SELECT ...",
+            "rows": [
+                {
+                    "categoria": "A",
+                    "region": "Norte",
+                    "ventas": 1200,
+                },
+                {
+                    "categoria": "A",
+                    "region": "Sur",
+                    "ventas": 900,
+                },
+                {
+                    "categoria": "B",
+                    "region": "Norte",
+                    "ventas": 1500,
+                },
+            ],
+        }
+    ]
+
+    result = get_grouped_sql_result(
+        sql_results=sql_results,
+        result_index=0,
+        x_column="categoria",
+        series_column="region",
+        metric_column="ventas",
+    )
+
+    assert result["type"] == "grouped_bar"
+    assert result["source"] == "sql_result"
+    assert result["x_column"] == "categoria"
+    assert result["series_column"] == "region"
+    assert result["metric_column"] == "ventas"
+    assert result["data"] == [
+        {
+            "categoria": "A",
+            "region": "Norte",
+            "ventas": 1200.0,
+        },
+        {
+            "categoria": "A",
+            "region": "Sur",
+            "ventas": 900.0,
+        },
+        {
+            "categoria": "B",
+            "region": "Norte",
+            "ventas": 1500.0,
+        },
+    ]
+
+
+def test_get_grouped_sql_result_rejects_invalid_index() -> None:
+    """Verifica el rechazo de un índice SQL inexistente."""
+    with pytest.raises(ValueError, match="índice"):
+        get_grouped_sql_result(
+            sql_results=[],
+            result_index=0,
+            x_column="categoria",
+            series_column="region",
+            metric_column="ventas",
+        )
+
+
+def test_get_grouped_sql_result_rejects_missing_column() -> None:
+    """Verifica el rechazo de una columna ausente en SQL."""
+    sql_results = [
+        {
+            "rows": [
+                {
+                    "categoria": "A",
+                    "region": "Norte",
+                    "ventas": 1200,
+                }
+            ]
+        }
+    ]
+
+    with pytest.raises(ValueError, match="no existe"):
+        get_grouped_sql_result(
+            sql_results=sql_results,
+            result_index=0,
+            x_column="categoria",
+            series_column="pais",
+            metric_column="ventas",
+        )
+
+
+def test_get_grouped_sql_result_rejects_non_numeric_metric() -> None:
+    """Verifica el rechazo de una métrica no numérica."""
+    sql_results = [
+        {
+            "rows": [
+                {
+                    "categoria": "A",
+                    "region": "Norte",
+                    "ventas": "1200",
+                }
+            ]
+        }
+    ]
+
+    with pytest.raises(ValueError, match="numérica"):
+        get_grouped_sql_result(
+            sql_results=sql_results,
+            result_index=0,
+            x_column="categoria",
+            series_column="region",
+            metric_column="ventas",
+        )
+
+
+def test_inspect_grouped_sql_result_updates_state() -> None:
+    """Verifica la persistencia del resultado SQL agrupado."""
+    dataframe = create_test_dataframe()
+    runtime = ToolRuntime(
+        state={
+            "dataset": dataframe,
+            "sql_results": [
+                {
+                    "rows": [
+                        {
+                            "categoria": "A",
+                            "region": "Norte",
+                            "ventas": 1200,
+                        }
+                    ]
+                }
+            ],
+            "chart_results": [],
+        },
+        context={},
+        config={},
+        stream_writer=lambda _: None,
+        tool_call_id="test_tool_call_id",
+        store=None,
+    )
+
+    result = inspect_grouped_sql_result.func(
+        0,
+        "categoria",
+        "region",
+        "ventas",
+        runtime,
+    )
+
+    assert isinstance(result, Command)
+    assert len(result.update["chart_results"]) == 1
+    assert result.update["chart_results"][0]["type"] == "grouped_bar"
+

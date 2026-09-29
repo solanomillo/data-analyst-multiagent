@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from numbers import Real
 from typing import Any
 
 import pandas as pd
@@ -429,3 +430,165 @@ def inspect_scatter_data(
         result=result,
         runtime=runtime,
     )
+
+
+def get_grouped_sql_result(
+    sql_results: list[dict[str, Any]],
+    result_index: int,
+    x_column: str,
+    series_column: str,
+    metric_column: str,
+) -> dict[str, Any]:
+    """
+    Prepara un resultado SQL agregado para un gráfico de barras agrupadas.
+
+    La herramienta consume directamente la evidencia producida por el
+    SQL Analyst. No recalcula ni transforma la métrica de negocio.
+
+    Args:
+        sql_results: Resultados SQL almacenados en el estado.
+        result_index: Índice del resultado SQL que se desea visualizar.
+        x_column: Columna que representa la dimensión principal del eje X.
+        series_column: Columna que separa las series del gráfico.
+        metric_column: Columna numérica que contiene la métrica agregada.
+
+    Returns:
+        Datos normalizados para construir un gráfico de barras agrupadas.
+
+    Raises:
+        ValueError:
+            Si el resultado, las columnas o la métrica no son válidos.
+    """
+    if not isinstance(sql_results, list):
+        raise ValueError(
+            "Los resultados SQL deben ser una lista."
+        )
+
+    if not isinstance(result_index, int):
+        raise ValueError(
+            "El índice del resultado SQL debe ser un entero."
+        )
+
+    if result_index < 0 or result_index >= len(sql_results):
+        raise ValueError(
+            f"No existe el resultado SQL con índice {result_index}."
+        )
+
+    sql_result = sql_results[result_index]
+
+    if not isinstance(sql_result, dict):
+        raise ValueError(
+            "El resultado SQL seleccionado debe ser un diccionario."
+        )
+
+    rows = sql_result.get("rows")
+
+    if rows is None:
+        rows = sql_result.get("results")
+
+    if rows is None and all(
+        isinstance(value, list)
+        for value in sql_result.values()
+    ):
+        rows = sql_result
+
+    if not isinstance(rows, list) or not rows:
+        raise ValueError(
+            "El resultado SQL seleccionado no contiene filas."
+        )
+
+    if not all(isinstance(row, dict) for row in rows):
+        raise ValueError(
+            "Las filas del resultado SQL deben ser diccionarios."
+        )
+
+    required_columns = (
+        x_column,
+        series_column,
+        metric_column,
+    )
+
+    for column in required_columns:
+        if not column:
+            raise ValueError(
+                "Las columnas del gráfico son obligatorias."
+            )
+
+        if not all(column in row for row in rows):
+            raise ValueError(
+                f"La columna '{column}' no existe en el resultado SQL."
+            )
+
+    normalized_rows: list[dict[str, Any]] = []
+
+    for row in rows:
+        metric_value = row[metric_column]
+
+        if isinstance(metric_value, bool) or not isinstance(
+            metric_value,
+            Real,
+        ):
+            raise ValueError(
+                f"La métrica '{metric_column}' debe ser numérica."
+            )
+
+        normalized_rows.append(
+            {
+                x_column: row[x_column],
+                series_column: row[series_column],
+                metric_column: float(metric_value),
+            }
+        )
+
+    return {
+        "type": "grouped_bar",
+        "source": "sql_result",
+        "result_index": result_index,
+        "x_column": x_column,
+        "series_column": series_column,
+        "metric_column": metric_column,
+        "data": normalized_rows,
+    }
+
+
+@tool
+def inspect_grouped_sql_result(
+    result_index: int,
+    x_column: str,
+    series_column: str,
+    metric_column: str,
+    runtime: ToolRuntime,
+) -> Command:
+    """
+    Prepara un resultado SQL agregado para un gráfico agrupado.
+
+    Args:
+        result_index: Índice del resultado SQL almacenado en el estado.
+        x_column: Dimensión principal del gráfico.
+        series_column: Dimensión utilizada para separar las series.
+        metric_column: Métrica numérica agregada por SQL.
+        runtime: Contexto de ejecución de la herramienta.
+
+    Returns:
+        Command con el resultado persistido en chart_results.
+    """
+    sql_results = runtime.state.get("sql_results", [])
+
+    logger.info(
+        "Preparando gráfico agrupado desde resultado SQL %s.",
+        result_index,
+    )
+
+    result = get_grouped_sql_result(
+        sql_results=sql_results,
+        result_index=result_index,
+        x_column=x_column,
+        series_column=series_column,
+        metric_column=metric_column,
+    )
+
+    return _create_chart_tool_command(
+        result=result,
+        runtime=runtime,
+    )
+

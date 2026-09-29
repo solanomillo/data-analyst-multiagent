@@ -12,9 +12,11 @@ from app.services.llm import get_llm
 from app.tools.chart_tools import (
     inspect_categorical_distribution,
     inspect_correlation_matrix,
+    inspect_grouped_sql_result,
     inspect_numeric_distribution,
     inspect_scatter_data,
 )
+
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,7 @@ def create_chart_analyst_agent():
             inspect_categorical_distribution,
             inspect_correlation_matrix,
             inspect_scatter_data,
+            inspect_grouped_sql_result,
         ],
         system_prompt=CHART_ANALYST_SYSTEM_PROMPT,
         state_schema=AnalysisState,

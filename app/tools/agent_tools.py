@@ -261,13 +261,16 @@ def _build_chart_context(
         "missing_values": state.get("missing_values"),
         "duplicate_info": state.get("duplicate_info"),
         "outliers": state.get("outliers"),
+        "sql_query": state.get("sql_query", []),
+        "sql_results": state.get("sql_results", []),
     }
 
     serialized_context = _serialize_context(chart_context)
 
     return (
-        "A continuación se proporciona el contexto del dataset "
-        "y los resultados del análisis de calidad disponibles.\n\n"
+        "A continuación se proporciona el contexto del dataset, "
+        "los resultados del análisis de calidad y la evidencia SQL "
+        "disponibles.\n\n"
         "Debes utilizar este contexto para determinar qué "
         "visualizaciones son relevantes para responder la pregunta "
         "del usuario.\n\n"
@@ -278,7 +281,11 @@ def _build_chart_context(
         "- No te limites a recomendar un gráfico en texto.\n"
         "- Las herramientas tienen acceso al DataFrame original "
         "mediante el estado compartido.\n"
-        "- No inventes columnas ni valores.\n\n"
+        "- Si existe un resultado SQL agregado que responda a la "
+        "pregunta, utilízalo como fuente de evidencia para la "
+        "visualización.\n"
+        "- No recalcules métricas que ya fueron producidas por SQL.\n"
+        "- No inventes columnas, métricas ni valores.\n\n"
         "CONTEXTO PARA EL CHART ANALYST:\n"
         f"{serialized_context}"
     )
