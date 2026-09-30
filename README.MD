@@ -677,32 +677,10 @@ refactor: simplify agent state handling
 docs: update project documentation
 ```
 
-------------------------------------------------------------------------
-
-## 📄 Licencia
-
-La licencia del proyecto deberá definirse antes de la publicación
-definitiva del repositorio.
-
-------------------------------------------------------------------------
+---
 
 ## 📸 Capturas de pantalla
 
-Las capturas de pantalla de la aplicación se almacenan en `assets/` y documentan visualmente las principales funcionalidades del sistema.
-
-Ejemplo de organización:
-
-```text
-assets/
-├── main-interface.png
-├── data-analysis.png
-├── sql-analysis.png
-└── charts.png
-```
-
-Para mostrar una captura directamente en GitHub:
-
-```markdown
 ![Interfaz principal](assets/image_1.png)
 ![Interfaz principal](assets/image_2.png)
 ![Interfaz principal](assets/image_3.png)
@@ -715,7 +693,6 @@ Para mostrar una captura directamente en GitHub:
 ![Interfaz principal](assets/image_10.png)
 ![Interfaz principal](assets/image_11.png)
 ![Interfaz principal](assets/image_12.png)
-```
 
 ---
 
