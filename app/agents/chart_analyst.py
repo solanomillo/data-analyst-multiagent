@@ -15,6 +15,7 @@ from app.tools.chart_tools import (
     inspect_grouped_sql_result,
     inspect_numeric_distribution,
     inspect_scatter_data,
+    inspect_sql_result_bar,
 )
 
 
@@ -34,12 +35,13 @@ def create_chart_analyst_agent():
     return create_agent(
         model=get_llm(),
         tools=[
-            inspect_numeric_distribution,
-            inspect_categorical_distribution,
-            inspect_correlation_matrix,
-            inspect_scatter_data,
-            inspect_grouped_sql_result,
-        ],
+    inspect_numeric_distribution,
+    inspect_categorical_distribution,
+    inspect_correlation_matrix,
+    inspect_scatter_data,
+    inspect_sql_result_bar,
+    inspect_grouped_sql_result,
+],
         system_prompt=CHART_ANALYST_SYSTEM_PROMPT,
         state_schema=AnalysisState,
         name="chart_analyst",

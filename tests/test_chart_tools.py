@@ -15,11 +15,13 @@ from app.tools.chart_tools import (
     get_categorical_distribution,
     get_correlation_matrix,
     get_grouped_sql_result,
+    get_sql_result_bar,
     get_numeric_distribution,
     get_scatter_data,
     inspect_categorical_distribution,
     inspect_correlation_matrix,
     inspect_grouped_sql_result,
+    inspect_sql_result_bar,
     inspect_numeric_distribution,
     inspect_scatter_data,
 )
@@ -548,3 +550,112 @@ def test_inspect_grouped_sql_result_updates_state() -> None:
     assert len(result.update["chart_results"]) == 1
     assert result.update["chart_results"][0]["type"] == "grouped_bar"
 
+
+
+
+def test_get_sql_result_bar() -> None:
+    """Verifica la preparación de un resultado SQL unidimensional."""
+    sql_results = [
+        {
+            "rows": [
+                {"categoria": "A", "ventas_promedio": 1200},
+                {"categoria": "B", "ventas_promedio": 900},
+            ]
+        }
+    ]
+
+    result = get_sql_result_bar(
+        sql_results=sql_results,
+        result_index=0,
+        x_column="categoria",
+        metric_column="ventas_promedio",
+    )
+
+    assert result["type"] == "bar"
+    assert result["source"] == "sql_result"
+    assert result["x_column"] == "categoria"
+    assert result["metric_column"] == "ventas_promedio"
+    assert "series_column" not in result
+    assert result["data"] == [
+        {"categoria": "A", "ventas_promedio": 1200.0},
+        {"categoria": "B", "ventas_promedio": 900.0},
+    ]
+
+
+def test_get_sql_result_bar_rejects_non_numeric_metric() -> None:
+    """Verifica el rechazo de una métrica no numérica en un gráfico simple."""
+    sql_results = [
+        {
+            "rows": [
+                {"categoria": "A", "ventas_promedio": "1200"},
+            ]
+        }
+    ]
+
+    with pytest.raises(ValueError, match="numérica"):
+        get_sql_result_bar(
+            sql_results=sql_results,
+            result_index=0,
+            x_column="categoria",
+            metric_column="ventas_promedio",
+        )
+
+
+def test_get_grouped_sql_result_rejects_same_dimension() -> None:
+    """Verifica que no se utilice la misma dimensión como X y serie."""
+    sql_results = [
+        {
+            "rows": [
+                {
+                    "categoria": "A",
+                    "ventas": 1200,
+                }
+            ]
+        }
+    ]
+
+    with pytest.raises(ValueError, match="deben ser diferentes"):
+        get_grouped_sql_result(
+            sql_results=sql_results,
+            result_index=0,
+            x_column="categoria",
+            series_column="categoria",
+            metric_column="ventas",
+        )
+
+
+def test_inspect_sql_result_bar_updates_state() -> None:
+    """Verifica la persistencia de un resultado SQL unidimensional."""
+    dataframe = create_test_dataframe()
+    runtime = ToolRuntime(
+        state={
+            "dataset": dataframe,
+            "sql_results": [
+                {
+                    "rows": [
+                        {
+                            "categoria": "A",
+                            "ventas": 1200,
+                        }
+                    ]
+                }
+            ],
+            "chart_results": [],
+        },
+        context={},
+        config={},
+        stream_writer=lambda _: None,
+        tool_call_id="test_tool_call_id",
+        store=None,
+    )
+
+    result = inspect_sql_result_bar.func(
+        0,
+        "categoria",
+        "ventas",
+        runtime,
+    )
+
+    assert isinstance(result, Command)
+    assert len(result.update["chart_results"]) == 1
+    assert result.update["chart_results"][0]["type"] == "bar"
