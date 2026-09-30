@@ -1,5 +1,14 @@
 # Data Analyst Multi-Agent
 
+![Python](https://img.shields.io/badge/Python-3.13-blue?style=for-the-badge&logo=python)
+![LangChain](https://img.shields.io/badge/LangChain-LLM%20Framework-green?style=for-the-badge)
+![LangGraph](https://img.shields.io/badge/LangGraph-Multi--Agent-purple?style=for-the-badge)
+![Streamlit](https://img.shields.io/badge/Streamlit-UI-red?style=for-the-badge&logo=streamlit)
+![Pandas](https://img.shields.io/badge/Pandas-Data%20Analysis-blue?style=for-the-badge&logo=pandas)
+![Plotly](https://img.shields.io/badge/Plotly-Data%20Visualization-blue?style=for-the-badge&logo=plotly)
+![DeepSeek](https://img.shields.io/badge/DeepSeek-LLM-black?style=for-the-badge)
+![Pytest](https://img.shields.io/badge/Pytest-Testing-orange?style=for-the-badge&logo=pytest)
+
 Sistema multi-agente para análisis exploratorio y analítico de datasets
 CSV mediante lenguaje natural.
 
@@ -309,31 +318,6 @@ errors
 
 Los resultados producidos por los agentes especializados se incorporan
 al estado y pueden ser utilizados posteriormente por otros agentes.
-
-------------------------------------------------------------------------
-
-## 🧰 Tecnologías
-
-### Lenguaje
-
--   Python 3.13
-
-### Frameworks y librerías
-
--   [LangChain](https://www.langchain.com/)
--   [LangGraph](https://www.langchain.com/langgraph)
--   [Streamlit](https://streamlit.io/)
--   [Pandas](https://pandas.pydata.org/)
--   [Plotly](https://plotly.com/python/)
--   [python-dotenv](https://pypi.org/project/python-dotenv/)
--   [langchain-deepseek](https://pypi.org/project/langchain-deepseek/)
--   Pytest
-
-### Modelo de lenguaje
-
-El proyecto utiliza DeepSeek mediante `ChatDeepSeek`.
-
-La configuración del modelo se realiza mediante variables de entorno.
 
 ------------------------------------------------------------------------
 
